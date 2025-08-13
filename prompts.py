@@ -27,3 +27,73 @@ Keep the tone professional but friendly. If everything is correct, simply state 
 
 Below is the text to analyze:""",
 }
+
+# Content analysis prompts for Notion integration
+CONTENT_ANALYSIS_PROMPTS = {
+    'title_generation': """Generate a concise, descriptive title for the following text. The title should:
+- Be 3-10 words maximum
+- Capture the main topic or theme
+- Be engaging and informative
+- Not include quotes or special formatting
+
+Only output the title, nothing else.
+
+Text:""",
+
+    'summary_generation': """Create a brief executive summary of the following text. The summary should:
+- Be 2-3 sentences maximum
+- Capture the key points and main ideas
+- Be clear and concise
+- Focus on the most important information
+
+Only output the summary, nothing else.
+
+Text:""",
+
+    'categorization': """Analyze the following brainstorm idea and suggest an appropriate category name. Consider these common categories but feel free to create new ones if needed:
+
+Common categories include:
+- Journal (personal reflections, daily thoughts, experiences)
+- Insights (discoveries, realizations, key learnings)
+- Inspiration (creative ideas, motivational thoughts, breakthrough moments)
+- Technology (tech innovations, digital tools, software concepts)
+- Neurobiology (brain science, neural mechanisms, biological processes)
+- Psychology (behavior, cognition, mental processes, human nature)
+- Business (strategy, operations, marketing, growth)
+- Product (development, features, user experience)
+- Research (studies, investigations, analysis)
+- Philosophy (deep thinking, existential questions, worldview)
+
+Output a single, concise category name (1-3 words) that best describes this idea. You can use one of the common categories above or create a new appropriate category.
+
+Text:""",
+
+    'tag_extraction': """Extract 3-6 relevant tags from the following text. Tags should be:
+- Single words or short phrases (1-3 words)
+- Relevant to the main topics discussed
+- Useful for organization and searching
+- Separated by commas
+
+Only output the tags as a comma-separated list, nothing else.
+
+Text:""",
+
+    'topic_extraction': """Identify the 3-5 main topics or themes discussed in the following text. Topics should be:
+- Key subjects or concepts mentioned
+- Important themes or ideas
+- Specific areas of focus
+- Separated by commas
+
+Only output the topics as a comma-separated list, nothing else.
+
+Text:""",
+
+    'sentiment_analysis': """Analyze the overall sentiment/tone of the following text. Choose ONE of these options:
+- positive: optimistic, happy, enthusiastic, encouraging
+- negative: pessimistic, sad, frustrated, critical
+- neutral: balanced, informational, matter-of-fact
+
+Only output one word (positive, negative, or neutral), nothing else.
+
+Text:"""
+}

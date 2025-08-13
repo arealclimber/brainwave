@@ -6,6 +6,7 @@ numpy
 websockets<14
 scipy
 google-generativeai
+notion-client
 pytest
 pytest-asyncio
 pytest-mock

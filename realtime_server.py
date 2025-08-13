@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 from typing import Generator
 from llm_processor import get_llm_processor
 from datetime import datetime, timedelta
+from notion_service import notion_service
+from content_analyzer import content_analyzer
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +53,16 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     logger.warning("OPENAI_API_KEY is not set in environment variables. Some features will be disabled.")
 
+# Notion configuration
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
+NOTION_AUTO_CREATE = os.getenv("NOTION_AUTO_CREATE", "true").lower() == "true"
+
+if not NOTION_TOKEN or not NOTION_DATABASE_ID:
+    logger.warning("NOTION_TOKEN or NOTION_DATABASE_ID not set. Notion integration will be disabled.")
+else:
+    logger.info("Notion integration enabled for automatic note creation")
+
 # Initialize with a default model
 try:
     llm_processor = get_llm_processor("gpt-4o")  # Default processor
@@ -67,10 +79,22 @@ async def get_realtime_page(request: Request):
 @app.get("/health")
 async def health_check():
     """Health check endpoint for deployment platforms"""
+    # Check Notion connectivity if configured
+    notion_status = "disabled"
+    if NOTION_TOKEN and NOTION_DATABASE_ID:
+        try:
+            notion_connected = await notion_service.check_connection()
+            notion_status = "connected" if notion_connected else "error"
+        except Exception:
+            notion_status = "error"
+    
     return {
         "status": "healthy",
         "openai_configured": OPENAI_API_KEY is not None,
-        "llm_processor_ready": llm_processor is not None
+        "llm_processor_ready": llm_processor is not None,
+        "notion_status": notion_status,
+        "content_analyzer_ready": content_analyzer.enabled,
+        "auto_create_notes": NOTION_AUTO_CREATE
     }
 
 
@@ -129,6 +153,10 @@ async def websocket_endpoint(websocket: WebSocket):
     all_audio_sent = asyncio.Event()
     all_audio_sent.set()  # Initially set since no audio is pending
     
+    # Track complete transcript for Notion integration
+    complete_transcript = ""
+    session_start_time = datetime.now()
+    
     async def initialize_openai():
         nonlocal client
         try:
@@ -172,11 +200,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Move the handler definitions here (before initialize_openai)
     async def handle_text_delta(data):
+        nonlocal complete_transcript
         try:
+            delta_text = data.get("delta", "")
+            
+            # Accumulate text for Notion integration
+            if delta_text:
+                complete_transcript += delta_text
+            
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.send_text(json.dumps({
                     "type": "text",
-                    "content": data.get("delta", ""),
+                    "content": delta_text,
                     "isNewResponse": False
                 }))
                 logger.info("Handled response.text.delta")
@@ -201,9 +236,13 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Handled error message from OpenAI")
 
     async def handle_response_done(data):
-        nonlocal client
+        nonlocal client, complete_transcript
         logger.info("Handled response.done")
         recording_stopped.set()
+        
+        # Process transcript for Notion integration (async to not block the response)
+        if complete_transcript.strip() and NOTION_AUTO_CREATE:
+            asyncio.create_task(create_notion_note_from_transcript(complete_transcript.strip()))
         
         if client:
             try:
@@ -270,6 +309,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         msg = json.loads(data["text"])
                         
                         if msg.get("type") == "start_recording":
+                            # Reset transcript for new session
+                            complete_transcript = ""
+                            session_start_time = datetime.now()
+                            
                             # Update status to connecting while initializing OpenAI
                             await websocket.send_text(json.dumps({
                                 "type": "status",
@@ -381,6 +424,31 @@ async def websocket_endpoint(websocket: WebSocket):
         if client:
             await client.close()
             logger.info("OpenAI client connection closed")
+
+async def create_notion_note_from_transcript(transcript: str):
+    """Create a Notion note from completed STT transcript"""
+    try:
+        logger.info(f"Creating Notion note for transcript: {transcript[:100]}...")
+        
+        # Analyze content using Gemini
+        analysis = await content_analyzer.analyze_content(transcript)
+        
+        # Create Notion note with analyzed content
+        result = await notion_service.create_stt_note(
+            content=transcript,
+            title=analysis.get("title"),
+            summary=analysis.get("summary"),
+            category=analysis.get("category"),
+            confidence=analysis.get("confidence")
+        )
+        
+        if result:
+            logger.info(f"Successfully created Notion note: {result['url']}")
+        else:
+            logger.warning("Failed to create Notion note - service may be disabled")
+            
+    except Exception as e:
+        logger.error(f"Error creating Notion note from transcript: {e}", exc_info=True)
 
 @app.post(
     "/api/v1/readability",
