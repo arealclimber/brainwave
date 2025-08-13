@@ -49,30 +49,17 @@ app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    logger.warning("OPENAI_API_KEY is not set in environment variables. Some features will be disabled.")
+    logger.error("OPENAI_API_KEY is not set in environment variables.")
+    raise EnvironmentError("OPENAI_API_KEY is not set.")
 
 # Initialize with a default model
-try:
-    llm_processor = get_llm_processor("gpt-4o")  # Default processor
-except Exception as e:
-    logger.warning(f"Failed to initialize LLM processor: {e}. Text processing will be disabled.")
-    llm_processor = None
+llm_processor = get_llm_processor("gpt-4o")  # Default processor
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def get_realtime_page(request: Request):
     return FileResponse("static/realtime.html")
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for deployment platforms"""
-    return {
-        "status": "healthy",
-        "openai_configured": OPENAI_API_KEY is not None,
-        "llm_processor_ready": llm_processor is not None
-    }
-
 
 class AudioProcessor:
     def __init__(self, target_sample_rate=24000):
@@ -123,11 +110,6 @@ async def websocket_endpoint(websocket: WebSocket):
     recording_stopped = asyncio.Event()
     openai_ready = asyncio.Event()
     pending_audio_chunks = []
-    # Add synchronization for audio sending operations
-    pending_audio_operations = 0
-    audio_send_lock = asyncio.Lock()
-    all_audio_sent = asyncio.Event()
-    all_audio_sent.set()  # Initially set since no audio is pending
     
     async def initialize_openai():
         nonlocal client
@@ -244,25 +226,12 @@ async def websocket_endpoint(websocket: WebSocket):
                             logger.debug("OpenAI not ready, buffering audio chunk")
                             pending_audio_chunks.append(processed_audio)
                         elif client:
-                            # Track pending audio operations
-                            async with audio_send_lock:
-                                nonlocal pending_audio_operations
-                                pending_audio_operations += 1
-                                all_audio_sent.clear()  # Clear the event since we have pending operations
-                            
-                            try:
-                                await client.send_audio(processed_audio)
-                                await websocket.send_text(json.dumps({
-                                    "type": "status",
-                                    "status": "connected"
-                                }))
-                                logger.debug(f"Sent audio chunk, size: {len(processed_audio)} bytes")
-                            finally:
-                                # Mark operation as complete
-                                async with audio_send_lock:
-                                    pending_audio_operations -= 1
-                                    if pending_audio_operations == 0:
-                                        all_audio_sent.set()  # Set event when all operations complete
+                            await client.send_audio(processed_audio)
+                            await websocket.send_text(json.dumps({
+                                "type": "status",
+                                "status": "connected"
+                            }))
+                            logger.debug(f"Sent audio chunk, size: {len(processed_audio)} bytes")
                         else:
                             logger.warning("Received audio but client is not initialized")
                             
@@ -284,41 +253,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             if pending_audio_chunks and client:
                                 logger.info(f"Sending {len(pending_audio_chunks)} buffered chunks")
                                 for chunk in pending_audio_chunks:
-                                    # Track each buffered chunk operation
-                                    async with audio_send_lock:
-                                        pending_audio_operations += 1
-                                        all_audio_sent.clear()
-                                    
-                                    try:
-                                        await client.send_audio(chunk)
-                                    finally:
-                                        async with audio_send_lock:
-                                            pending_audio_operations -= 1
-                                            if pending_audio_operations == 0:
-                                                all_audio_sent.set()
+                                    await client.send_audio(chunk)
                                 pending_audio_chunks.clear()
                             
                         elif msg.get("type") == "stop_recording":
                             if client:
-                                # CRITICAL FIX: Wait for all pending audio operations to complete
-                                # before committing to prevent data loss
-                                logger.info("Stop recording received, waiting for all audio to be sent...")
-                                
-                                # Wait for any pending audio chunks to be sent (with timeout for safety)
-                                try:
-                                    await asyncio.wait_for(all_audio_sent.wait(), timeout=5.0)
-                                    logger.info("All pending audio operations completed")
-                                except asyncio.TimeoutError:
-                                    logger.warning("Timeout waiting for audio operations to complete, proceeding anyway")
-                                    # Reset the pending counter to prevent deadlock
-                                    async with audio_send_lock:
-                                        pending_audio_operations = 0
-                                        all_audio_sent.set()
-                                
-                                # Add a small buffer to ensure network operations complete
-                                await asyncio.sleep(0.1)
-                                
-                                logger.info("All audio sent, committing audio buffer...")
                                 await client.commit_audio()
                                 await client.start_response(PROMPTS['paraphrase-gpt-realtime'])
                                 await recording_stopped.wait()

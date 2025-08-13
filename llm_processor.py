@@ -18,7 +18,7 @@ class LLMProcessor(ABC):
         pass
 
 class GeminiProcessor(LLMProcessor):
-    def __init__(self, default_model: str = 'gemini-1.5-pro'):
+    def __init__(self, default_model: str = 'gemini-2.5-pro'):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise EnvironmentError("GOOGLE_API_KEY is not set")

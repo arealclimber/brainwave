@@ -21,6 +21,14 @@ def mock_llm_processor():
         
         yield mock
 
+@pytest.fixture
+def mock_gemini_processor():
+    with patch('realtime_server.get_llm_processor') as mock:
+        mock_processor = MagicMock()
+        mock_processor.process_text_sync.return_value = "Mocked Gemini response"
+        mock.return_value = mock_processor
+        yield mock
+
 def test_enhance_readability(mock_llm_processor):
     request = ReadabilityRequest(text="Test text")
     response = client.post("/api/v1/readability", json=request.model_dump())
@@ -33,11 +41,11 @@ def test_check_correctness(mock_llm_processor):
     assert response.status_code == 200
     assert "Mocked streaming response" in response.text
 
-def test_ask_ai(mock_llm_processor):
+def test_ask_ai(mock_gemini_processor):
     request = AskAIRequest(text="What is the meaning of life?")
     response = client.post("/api/v1/ask_ai", json=request.model_dump())
     assert response.status_code == 200
-    assert response.json()["answer"] == "Mocked response"
+    assert response.json()["answer"] == "Mocked Gemini response"
 
 @pytest.mark.asyncio
 async def test_websocket_endpoint():

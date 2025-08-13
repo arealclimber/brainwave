@@ -1,4 +1,5 @@
 *.sh
 .windsurfrules
 scratchpad.md
-.env
+__pycache__/
+venv/
