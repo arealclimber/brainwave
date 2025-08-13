@@ -161,7 +161,7 @@ textarea {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background-color: #ff3b30;
+  background-color: #FF3B30;
   /* Red by default */
   transition: background-color 0.3s ease;
 }
@@ -186,7 +186,7 @@ body.dark-theme #recordButton {
 }
 
 body.dark-theme #recordButton.recording {
-  background-color: #ff9500;
+  background-color: #b50101;
   /* Orange */
 }
 
