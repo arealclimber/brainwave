@@ -11,3 +11,6 @@ pytest
 pytest-asyncio
 pytest-mock
 httpx
+APScheduler==3.10.4
+aiofiles==23.2.1
+python-dotenv==1.0.0

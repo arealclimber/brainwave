@@ -15,9 +15,11 @@ import datetime
 import scipy.signal
 from openai import OpenAI, AsyncOpenAI
 from pydantic import BaseModel, Field
-from typing import Generator
+from typing import Generator, Optional
 from llm_processor import get_llm_processor
 from datetime import datetime, timedelta
+from monitor import word_count_monitor
+from notion_service import notion_service
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +47,20 @@ class AskAIRequest(BaseModel):
 class AskAIResponse(BaseModel):
     answer: str = Field(..., description="AI's answer to the question.")
 
+# Word count monitoring models
+class WordCountStatusResponse(BaseModel):
+    status: str = Field(..., description="Current status of the word count monitor")
+    running: bool = Field(..., description="Whether the monitor is running")
+    stats: dict = Field(..., description="Monitor statistics")
+
+class ManualUpdateRequest(BaseModel):
+    page_id: Optional[str] = Field(None, description="Specific page ID to update (optional)")
+
+class ManualUpdateResponse(BaseModel):
+    success: bool = Field(..., description="Whether the update was successful")
+    message: str = Field(..., description="Status message")
+    details: Optional[dict] = Field(None, description="Additional details")
+
 app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -54,6 +70,31 @@ if not OPENAI_API_KEY:
 
 # Initialize with a default model
 llm_processor = get_llm_processor("gpt-4o")  # Default processor
+
+# Application lifecycle events
+@app.on_event("startup")
+async def startup_event():
+    """Start the word count monitoring service"""
+    logger.info("Starting application...")
+    
+    # Start the word count monitor if Notion is configured
+    if notion_service.enabled:
+        success = await word_count_monitor.start()
+        if success:
+            logger.info("Word count monitoring started successfully")
+        else:
+            logger.warning("Failed to start word count monitoring")
+    else:
+        logger.info("Notion service not enabled, skipping word count monitoring")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean shutdown of services"""
+    logger.info("Shutting down application...")
+    
+    # Stop the word count monitor
+    await word_count_monitor.stop()
+    logger.info("Word count monitoring stopped")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -386,6 +427,108 @@ async def check_correctness(request: CorrectnessRequest):
     except Exception as e:
         logger.error(f"Error checking correctness: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing correctness check.")
+
+# Word count monitoring endpoints
+@app.get(
+    "/api/v1/word-count/status",
+    response_model=WordCountStatusResponse,
+    summary="Get Word Count Monitor Status",
+    description="Get the current status and statistics of the word count monitoring service."
+)
+async def get_word_count_status():
+    try:
+        status = word_count_monitor.get_status()
+        return WordCountStatusResponse(
+            status="running" if status["running"] else "stopped",
+            running=status["running"],
+            stats=status
+        )
+    except Exception as e:
+        logger.error(f"Error getting word count status: {e}")
+        raise HTTPException(status_code=500, detail="Error getting monitor status")
+
+@app.get(
+    "/api/v1/word-count/health",
+    summary="Word Count Monitor Health Check",
+    description="Perform a health check on the word count monitoring service."
+)
+async def word_count_health_check():
+    try:
+        health = await word_count_monitor.health_check()
+        status_code = 200 if health["healthy"] else 503
+        return health
+    except Exception as e:
+        logger.error(f"Error in word count health check: {e}")
+        return {"healthy": False, "error": str(e)}
+
+@app.post(
+    "/api/v1/word-count/manual-update",
+    response_model=ManualUpdateResponse,
+    summary="Manual Word Count Update",
+    description="Manually trigger word count update for a specific page or all pages."
+)
+async def manual_word_count_update(request: ManualUpdateRequest):
+    try:
+        if request.page_id:
+            # Update specific page
+            word_count = await word_count_monitor.manual_update_page(request.page_id)
+            if word_count is not None:
+                return ManualUpdateResponse(
+                    success=True,
+                    message=f"Successfully updated word count: {word_count} words",
+                    details={"page_id": request.page_id, "word_count": word_count}
+                )
+            else:
+                return ManualUpdateResponse(
+                    success=False,
+                    message="Failed to update word count for the specified page"
+                )
+        else:
+            # Update all pages
+            result = await word_count_monitor.manual_update_all()
+            if result["success"]:
+                return ManualUpdateResponse(
+                    success=True,
+                    message=f"Updated {result['updated']} pages out of {result['total']}",
+                    details=result
+                )
+            else:
+                return ManualUpdateResponse(
+                    success=False,
+                    message=result["message"]
+                )
+    except Exception as e:
+        logger.error(f"Error in manual word count update: {e}")
+        return ManualUpdateResponse(
+            success=False,
+            message=f"Error during update: {str(e)}"
+        )
+
+@app.post(
+    "/api/v1/word-count/webhook",
+    summary="Webhook Endpoint",
+    description="Webhook endpoint for third-party services (like Zapier) to trigger word count updates."
+)
+async def word_count_webhook(request: dict):
+    try:
+        # Extract page_id from webhook payload if available
+        page_id = request.get("page_id")
+        
+        if page_id:
+            word_count = await word_count_monitor.manual_update_page(page_id)
+            return {
+                "success": word_count is not None,
+                "page_id": page_id,
+                "word_count": word_count
+            }
+        else:
+            # Trigger check for all pages
+            await word_count_monitor._monitor_pages()
+            return {"success": True, "message": "Monitoring check triggered"}
+            
+    except Exception as e:
+        logger.error(f"Error in webhook handler: {e}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=3005)

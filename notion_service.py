@@ -1,6 +1,7 @@
 import os
 import logging
-from typing import Dict, Optional, List
+import re
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 from notion_client import Client
 # Import only what we need from notion_client
@@ -218,6 +219,160 @@ class NotionService:
         except Exception as e:
             logger.error(f"Notion connection check failed: {e}")
             return False
+    
+    # Word count tracking methods
+    async def get_database_pages(self) -> List[Dict]:
+        """Get all pages from the database sorted by last_edited_time"""
+        if not self.enabled:
+            return []
+            
+        try:
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                sorts=[
+                    {
+                        "property": "last_edited_time",
+                        "direction": "descending"
+                    }
+                ]
+            )
+            
+            pages = []
+            for page in response["results"]:
+                pages.append({
+                    "page_id": page["id"],
+                    "last_edited_time": page["last_edited_time"],
+                    "url": page["url"],
+                    "properties": page["properties"]
+                })
+            
+            logger.info(f"Retrieved {len(pages)} pages from database")
+            return pages
+            
+        except Exception as e:
+            logger.error(f"Failed to get database pages: {e}")
+            return []
+    
+    async def get_page_content(self, page_id: str) -> str:
+        """Get the full content of a page and return as text"""
+        if not self.enabled:
+            return ""
+            
+        try:
+            # Get page blocks
+            response = self.client.blocks.children.list(block_id=page_id)
+            content_text = ""
+            
+            for block in response["results"]:
+                text = self._extract_text_from_block(block)
+                if text:
+                    content_text += text + "\n"
+            
+            return content_text.strip()
+            
+        except Exception as e:
+            logger.error(f"Failed to get page content for {page_id}: {e}")
+            return ""
+    
+    def _extract_text_from_block(self, block: Dict) -> str:
+        """Extract text content from a Notion block"""
+        block_type = block.get("type")
+        
+        if not block_type:
+            return ""
+        
+        # Handle different block types
+        text_content = ""
+        
+        if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", 
+                         "bulleted_list_item", "numbered_list_item", "quote", "callout"]:
+            rich_text_key = block_type
+            if block_type.startswith("heading_"):
+                rich_text_key = block_type
+            
+            rich_texts = block.get(rich_text_key, {}).get("rich_text", [])
+            for rich_text in rich_texts:
+                if "text" in rich_text:
+                    text_content += rich_text["text"]["content"]
+        
+        elif block_type == "code":
+            rich_texts = block.get("code", {}).get("rich_text", [])
+            for rich_text in rich_texts:
+                if "text" in rich_text:
+                    text_content += rich_text["text"]["content"]
+        
+        elif block_type == "to_do":
+            rich_texts = block.get("to_do", {}).get("rich_text", [])
+            for rich_text in rich_texts:
+                if "text" in rich_text:
+                    text_content += rich_text["text"]["content"]
+        
+        return text_content
+    
+    def count_words(self, text: str) -> int:
+        """Count words in text (handles both English and Chinese)"""
+        if not text.strip():
+            return 0
+        
+        # Count Chinese characters (each character counts as one word)
+        chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
+        chinese_count = len(chinese_chars)
+        
+        # Remove Chinese characters and count English words
+        english_text = re.sub(r'[\u4e00-\u9fff]', '', text)
+        # Split by whitespace and filter out empty strings and punctuation-only strings
+        english_words = [word for word in re.findall(r'\b\w+\b', english_text) if word]
+        english_count = len(english_words)
+        
+        total_words = chinese_count + english_count
+        logger.debug(f"Word count: {total_words} (Chinese: {chinese_count}, English: {english_count})")
+        
+        return total_words
+    
+    async def update_word_count(self, page_id: str, word_count: int) -> bool:
+        """Update the Words field for a specific page"""
+        if not self.enabled:
+            return False
+            
+        try:
+            self.client.pages.update(
+                page_id=page_id,
+                properties={
+                    "Words": {
+                        "number": word_count
+                    }
+                }
+            )
+            
+            logger.info(f"Updated word count for page {page_id}: {word_count} words")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update word count for page {page_id}: {e}")
+            return False
+    
+    async def calculate_and_update_word_count(self, page_id: str) -> Optional[int]:
+        """Calculate word count for a page and update the Words field"""
+        try:
+            # Get page content
+            content = await self.get_page_content(page_id)
+            
+            # Calculate word count
+            word_count = self.count_words(content)
+            
+            # Update the Words field
+            success = await self.update_word_count(page_id, word_count)
+            
+            if success:
+                logger.info(f"Successfully calculated and updated word count for page {page_id}: {word_count} words")
+                return word_count
+            else:
+                logger.error(f"Failed to update word count for page {page_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to calculate and update word count for page {page_id}: {e}")
+            return None
 
 # Global instance
 notion_service = NotionService()
