@@ -251,7 +251,7 @@ class NotionService:
                 database_id=self.database_id,
                 sorts=[
                     {
-                        "property": "last_edited_time",
+                        "property": "Last edited time",
                         "direction": "descending"
                     }
                 ]
@@ -259,9 +259,19 @@ class NotionService:
             
             pages = []
             for page in response["results"]:
+                # Try to get custom "Last edited time" property first, fallback to system property
+                custom_last_edited = None
+                if "Last edited time" in page.get("properties", {}):
+                    custom_prop = page["properties"]["Last edited time"]
+                    if custom_prop.get("type") == "last_edited_time":
+                        custom_last_edited = custom_prop.get("last_edited_time")
+                
+                # Use custom property if available, otherwise use system property
+                last_edited_time = custom_last_edited or page["last_edited_time"]
+                
                 pages.append({
                     "page_id": page["id"],
-                    "last_edited_time": page["last_edited_time"],
+                    "last_edited_time": last_edited_time,
                     "url": page["url"],
                     "properties": page["properties"]
                 })
