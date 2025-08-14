@@ -33,7 +33,8 @@ class NotionService:
         title: str = None,
         summary: str = None,
         category: str = None,
-        confidence: float = None
+        confidence: float = None,
+        auto_calculate_words: bool = True
     ) -> Optional[Dict]:
         """Create a new note in Notion from STT transcription"""
         if not self.enabled:
@@ -105,9 +106,17 @@ class NotionService:
                             }
                         ]
                     }
+                
+                # Words field - calculate and add word count if enabled
+                if auto_calculate_words:
+                    word_count = self.count_words(content)
+                    properties["Words"] = {
+                        "number": word_count
+                    }
+                    logger.info(f"Calculated word count for new page: {word_count} words")
             except Exception as prop_error:
                 logger.error(f"Error setting properties: {prop_error}")
-                # Fall back to just title
+                # Fall back to just title and word count
                 properties = {
                     "Idea": {
                         "title": [
@@ -119,6 +128,17 @@ class NotionService:
                         ]
                     }
                 }
+                
+                # Still try to add word count even in fallback
+                if auto_calculate_words:
+                    try:
+                        word_count = self.count_words(content)
+                        properties["Words"] = {
+                            "number": word_count
+                        }
+                        logger.info(f"Calculated word count for new page (fallback): {word_count} words")
+                    except Exception as word_error:
+                        logger.warning(f"Failed to calculate word count in fallback: {word_error}")
             
             # Prepare page content
             children = [
