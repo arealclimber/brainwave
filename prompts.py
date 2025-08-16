@@ -35,8 +35,9 @@ CONTENT_ANALYSIS_PROMPTS = {
 - Capture the main topic or theme
 - Be engaging and informative
 - Not include quotes or special formatting
+- Be written in English
 
-Only output the title, nothing else.
+Only output the title in English, nothing else.
 
 Text:""",
 
@@ -45,8 +46,9 @@ Text:""",
 - Capture the key points and main ideas
 - Be clear and concise
 - Focus on the most important information
+- Be written in English
 
-Only output the summary, nothing else.
+Only output the summary in English, nothing else.
 
 Text:""",
 
