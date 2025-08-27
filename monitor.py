@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Set
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from notion_service import notion_service
 from state_manager import state_manager
 
@@ -12,9 +12,8 @@ logger = logging.getLogger(__name__)
 class NotionWordCountMonitor:
     """Monitor for Notion pages and automatic word count updates"""
     
-    def __init__(self, check_interval_minutes: int = 1):
+    def __init__(self):
         self.scheduler = AsyncIOScheduler()
-        self.check_interval_minutes = check_interval_minutes
         self.is_running = False
         self.last_check_time = None
         self.stats = {
@@ -39,10 +38,10 @@ class NotionWordCountMonitor:
                 logger.error("Failed to connect to Notion API, cannot start monitoring")
                 return False
             
-            # Schedule the monitoring job
+            # Schedule the monitoring job to run daily at 3 AM UTC+8 (7 PM UTC)
             self.scheduler.add_job(
                 self._monitor_pages,
-                trigger=IntervalTrigger(minutes=self.check_interval_minutes),
+                trigger=CronTrigger(hour=19, minute=0, timezone='UTC'),  # 3 AM UTC+8 = 7 PM UTC
                 id='notion_word_count_monitor',
                 name='Notion Word Count Monitor',
                 max_instances=1,
@@ -53,7 +52,7 @@ class NotionWordCountMonitor:
             self.scheduler.start()
             self.is_running = True
             
-            logger.info(f"Started Notion word count monitor (checking every {self.check_interval_minutes} minutes)")
+            logger.info("Started Notion word count monitor (running daily at 3 AM UTC+8)")
             
             # Run initial check
             await self._monitor_pages()
@@ -205,7 +204,7 @@ class NotionWordCountMonitor:
         """Get current status of the monitoring service"""
         return {
             "running": self.is_running,
-            "check_interval_minutes": self.check_interval_minutes,
+            "schedule": "Daily at 3 AM UTC+8",
             "last_check_time": self.last_check_time.isoformat() if self.last_check_time else None,
             "stats": self.stats.copy(),
             "state_manager_stats": state_manager.get_stats(),
@@ -237,4 +236,4 @@ class NotionWordCountMonitor:
             }
 
 # Global instance
-word_count_monitor = NotionWordCountMonitor(check_interval_minutes=1)
+word_count_monitor = NotionWordCountMonitor()
