@@ -245,3 +245,47 @@ body.dark-theme .action-button {
 body.dark-theme .action-button:hover {
   background-color: #60a4ed;
 }
+
+/* Version info styles */
+.version-info {
+  text-align: center;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.version-info .version {
+  font-weight: 600;
+  color: #88c2ff;
+}
+
+.version-info .update-date {
+  opacity: 0.8;
+}
+
+/* Dark theme version info */
+body.dark-theme .version-info {
+  border-top-color: #3a3a3c;
+  color: #999;
+}
+
+body.dark-theme .version-info .version {
+  color: #88c2ff;
+}
+
+/* Mobile adjustments for version info */
+@media (max-width: 480px) {
+  .version-info {
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 20px;
+    padding-top: 15px;
+    font-size: 0.8rem;
+  }
+}
