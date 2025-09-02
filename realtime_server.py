@@ -202,7 +202,6 @@ async def websocket_endpoint(websocket: WebSocket):
     # Track complete transcript for Notion integration
     complete_transcript = ""
     session_start_time = datetime.now()
-    current_session_transcript = ""  # Track current session only
     
     async def initialize_openai():
         nonlocal client
@@ -247,13 +246,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Move the handler definitions here (before initialize_openai)
     async def handle_text_delta(data):
-        nonlocal current_session_transcript
+        nonlocal complete_transcript
         try:
             delta_text = data.get("delta", "")
             
-            # Accumulate text for current session only
+            # Accumulate text for Notion integration
             if delta_text:
-                current_session_transcript += delta_text
+                complete_transcript += delta_text
             
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.send_text(json.dumps({
@@ -283,16 +282,13 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Handled error message from OpenAI")
 
     async def handle_response_done(data):
-        nonlocal client, current_session_transcript
+        nonlocal client, complete_transcript
         logger.info("Handled response.done")
         recording_stopped.set()
         
         # Process transcript for Notion integration (async to not block the response)
-        if current_session_transcript.strip() and NOTION_AUTO_CREATE:
-            # Create a copy of the transcript and clear the session variable immediately
-            session_transcript_copy = current_session_transcript.strip()
-            current_session_transcript = ""  # Clear immediately to prevent accumulation
-            asyncio.create_task(create_notion_note_from_transcript(session_transcript_copy))
+        if complete_transcript.strip() and NOTION_AUTO_CREATE:
+            asyncio.create_task(create_notion_note_from_transcript(complete_transcript.strip()))
         
         if client:
             try:
@@ -360,7 +356,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                         if msg.get("type") == "start_recording":
                             # Reset transcript for new session
-                            current_session_transcript = ""
+                            complete_transcript = ""
                             session_start_time = datetime.now()
                             
                             # Update status to connecting while initializing OpenAI
