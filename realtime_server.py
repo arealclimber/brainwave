@@ -18,10 +18,6 @@ from pydantic import BaseModel, Field
 from typing import Generator, Optional
 from llm_processor import get_llm_processor
 from datetime import datetime, timedelta
-
-# Transcript processing queue
-transcript_queue = asyncio.Queue()
-queue_processor_task = None
 from notion_service import notion_service
 from content_analyzer import content_analyzer
 from monitor import word_count_monitor
@@ -290,14 +286,9 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Handled response.done")
         recording_stopped.set()
         
-        # Add transcript to queue for processing (immediate snapshot to avoid data race)
-        transcript_snapshot = complete_transcript.strip()
-        if transcript_snapshot and NOTION_AUTO_CREATE:
-            await transcript_queue.put({
-                'transcript': transcript_snapshot,
-                'timestamp': datetime.now()
-            })
-            logger.info(f"Added transcript to queue: {transcript_snapshot[:50]}...")
+        # Process transcript for Notion integration (async to not block the response)
+        if complete_transcript.strip() and NOTION_AUTO_CREATE:
+            asyncio.create_task(create_notion_note_from_transcript(complete_transcript.strip()))
         
         if client:
             try:
@@ -367,9 +358,6 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Reset transcript for new session
                             complete_transcript = ""
                             session_start_time = datetime.now()
-                            
-                            # Ensure queue processor is running
-                            await ensure_queue_processor_running()
                             
                             # Update status to connecting while initializing OpenAI
                             await websocket.send_text(json.dumps({
@@ -483,56 +471,30 @@ async def websocket_endpoint(websocket: WebSocket):
             await client.close()
             logger.info("OpenAI client connection closed")
 
-async def process_transcript_queue():
-    """Queue processor that handles transcript processing tasks sequentially"""
-    while True:
-        try:
-            # Wait for a transcript task from the queue
-            task_data = await transcript_queue.get()
-            transcript = task_data['transcript']
-            timestamp = task_data['timestamp']
-            
-            logger.info(f"Processing transcript from queue: {transcript[:50]}... (queued at {timestamp})")
-            
-            # Analyze content using Gemini and create Notion note (complete atomic task)
-            analysis = await content_analyzer.analyze_content(transcript)
-            
-            # Create Notion note with analyzed content
-            result = await notion_service.create_stt_note(
-                content=transcript,
-                title=analysis.get("title"),
-                summary=analysis.get("summary"),
-                category=analysis.get("category"),
-                confidence=analysis.get("confidence")
-            )
-            
-            if result:
-                logger.info(f"Successfully processed transcript and created Notion note: {result['url']}")
-            else:
-                logger.warning("Failed to create Notion note - service may be disabled")
-            
-            # Mark task as done
-            transcript_queue.task_done()
-            
-        except Exception as e:
-            logger.error(f"Error processing transcript from queue: {e}", exc_info=True)
-            # Mark task as done even if it failed to avoid queue getting stuck
-            transcript_queue.task_done()
-
-async def ensure_queue_processor_running():
-    """Ensure the transcript queue processor is running"""
-    global queue_processor_task
-    
-    if queue_processor_task is None or queue_processor_task.done():
-        logger.info("Starting transcript queue processor...")
-        queue_processor_task = asyncio.create_task(process_transcript_queue())
-
 async def create_notion_note_from_transcript(transcript: str):
-    """Legacy function - now just adds to queue for backward compatibility"""
-    await transcript_queue.put({
-        'transcript': transcript,
-        'timestamp': datetime.now()
-    })
+    """Create a Notion note from completed STT transcript"""
+    try:
+        logger.info(f"Creating Notion note for transcript: {transcript[:100]}...")
+        
+        # Analyze content using Gemini
+        analysis = await content_analyzer.analyze_content(transcript)
+        
+        # Create Notion note with analyzed content
+        result = await notion_service.create_stt_note(
+            content=transcript,
+            title=analysis.get("title"),
+            summary=analysis.get("summary"),
+            category=analysis.get("category"),
+            confidence=analysis.get("confidence")
+        )
+        
+        if result:
+            logger.info(f"Successfully created Notion note: {result['url']}")
+        else:
+            logger.warning("Failed to create Notion note - service may be disabled")
+            
+    except Exception as e:
+        logger.error(f"Error creating Notion note from transcript: {e}", exc_info=True)
 
 @app.post(
     "/api/v1/readability",
