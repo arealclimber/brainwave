@@ -287,8 +287,12 @@ async def websocket_endpoint(websocket: WebSocket):
         recording_stopped.set()
         
         # Process transcript for Notion integration (async to not block the response)
-        if complete_transcript.strip() and NOTION_AUTO_CREATE:
-            asyncio.create_task(create_notion_note_from_transcript(complete_transcript.strip()))
+        current_transcript = complete_transcript.strip()
+        if current_transcript and NOTION_AUTO_CREATE:
+            asyncio.create_task(create_notion_note_from_transcript(current_transcript))
+        
+        # reset transcript to avoid cumulative note content
+        complete_transcript = ""
         
         if client:
             try:
