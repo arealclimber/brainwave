@@ -65,7 +65,7 @@ class NotionService:
                 # Status field - check logs to see actual format needed
                 properties["Status"] = {
                     "status": {
-                        "name": "New idea"
+                        "name": "Raw Capture"
                     }
                 }
                 
