@@ -178,9 +178,8 @@ function initializeWebSocket() {
     switch (data.type) {
       case "session_created":
         currentSessionId = data.session_id;
-        console.log("Session created:", currentSessionId);
-        // Disable buttons for new session until transcription is complete
-        setTranscriptionButtonsEnabled(false);
+        console.log("New recording session:", currentSessionId);
+        // Buttons will be enabled when transcription is complete
         break;
       case "status":
         updateConnectionStatus(data.status);

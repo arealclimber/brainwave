@@ -276,15 +276,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection accepted")
     
-    # Generate unique session ID for this connection
-    session_id = generate_session_id()
-    logger.info(f"Generated session ID: {session_id}")
-    
-    # Send session_id to frontend first
-    await websocket.send_text(json.dumps({
-        "type": "session_created",
-        "session_id": session_id
-    }))
+    # Session ID will be generated per recording, not per connection
+    session_id = None
     
     # Add initial status update here
     await websocket.send_text(json.dumps({
@@ -476,6 +469,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         msg = json.loads(data["text"])
                         
                         if msg.get("type") == "start_recording":
+                            # Generate new session ID for each recording
+                            session_id = generate_session_id()
+                            logger.info(f"Generated new session ID: {session_id}")
+                            
+                            # Send new session_id to frontend
+                            await websocket.send_text(json.dumps({
+                                "type": "session_created",
+                                "session_id": session_id
+                            }))
+                            
                             # Reset transcript for new session
                             complete_transcript = ""
                             session_start_time = datetime.now()
