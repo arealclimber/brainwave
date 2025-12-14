@@ -561,6 +561,15 @@ function initializeWebSocket() {
         setTranscriptionButtonsEnabled(true);
         console.log("Transcription complete, session:", data.session_id);
 
+        // Re-check checkbox states at the end of recording
+        // This allows users to change their mind during recording
+        isSaveToSheetEnabled =
+          (saveToSheetCheckbox && saveToSheetCheckbox.checked) ||
+          (saveToSheetCheckboxMobile && saveToSheetCheckboxMobile.checked);
+        isTodoEnabled =
+          (todoCheckbox && todoCheckbox.checked) ||
+          (todoCheckboxMobile && todoCheckboxMobile.checked);
+
         // Auto-save to Google Sheet if enabled
         if (isSaveToSheetEnabled) {
           autoSaveToSheet();
