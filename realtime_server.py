@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import uuid
 import numpy as np
 from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +22,65 @@ from datetime import datetime, timedelta
 from notion_service import notion_service
 from content_analyzer import content_analyzer
 from monitor import word_count_monitor
+from gemini_transcriber import get_gemini_transcriber
+
+# Audio storage configuration
+# Use /tmp for temporary audio storage (works on all systems, survives within container lifecycle)
+AUDIO_STORAGE_PATH = os.getenv("AUDIO_STORAGE_PATH", "/tmp/brainwave_audio")
+
+def ensure_audio_storage_exists():
+    """Ensure the audio storage directory exists"""
+    try:
+        if not os.path.exists(AUDIO_STORAGE_PATH):
+            os.makedirs(AUDIO_STORAGE_PATH, exist_ok=True)
+            logger.info(f"Created audio storage directory: {AUDIO_STORAGE_PATH}")
+    except OSError as e:
+        logger.warning(f"Could not create audio storage directory: {e}. Audio storage will be disabled.")
+
+def generate_session_id() -> str:
+    """Generate a unique session ID for audio storage"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = uuid.uuid4().hex[:8]
+    return f"{timestamp}_{unique_id}"
+
+def get_audio_file_path(session_id: str) -> str:
+    """Get the full path for an audio file given a session ID"""
+    return os.path.join(AUDIO_STORAGE_PATH, f"{session_id}.wav")
+
+# Audio cleanup configuration
+AUDIO_CLEANUP_INTERVAL = 3600  # 1 hour in seconds
+AUDIO_MAX_AGE = 86400  # 24 hours in seconds
+
+async def cleanup_old_audio_files():
+    """Background task to clean up old audio files every hour"""
+    while True:
+        try:
+            await asyncio.sleep(AUDIO_CLEANUP_INTERVAL)
+            
+            if not os.path.exists(AUDIO_STORAGE_PATH):
+                continue
+                
+            now = datetime.now()
+            cleaned_count = 0
+            
+            for filename in os.listdir(AUDIO_STORAGE_PATH):
+                filepath = os.path.join(AUDIO_STORAGE_PATH, filename)
+                try:
+                    file_mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+                    file_age = (now - file_mtime).total_seconds()
+                    
+                    if file_age > AUDIO_MAX_AGE:
+                        os.remove(filepath)
+                        cleaned_count += 1
+                        logger.info(f"Cleaned up old audio file: {filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to check/clean file {filepath}: {e}")
+            
+            if cleaned_count > 0:
+                logger.info(f"Audio cleanup completed: removed {cleaned_count} old files")
+                
+        except Exception as e:
+            logger.error(f"Error in audio cleanup task: {e}")
 
 # Configure logging
 logging.basicConfig(
@@ -62,6 +122,20 @@ class ManualUpdateResponse(BaseModel):
     message: str = Field(..., description="Status message")
     details: Optional[dict] = Field(None, description="Additional details")
 
+# Re-transcription models
+class RetranscribeRequest(BaseModel):
+    session_id: str = Field(..., description="The session ID of the recording to re-transcribe")
+
+class RetranscribeResponse(BaseModel):
+    success: bool = Field(..., description="Whether the re-transcription was successful")
+    text: str = Field("", description="The re-transcribed text")
+    error: str = Field("", description="Error message if failed")
+
+# Confirm Notion models
+class ConfirmNotionRequest(BaseModel):
+    transcript: str = Field(..., description="The transcript text to save to Notion")
+    session_id: Optional[str] = Field(None, description="The session ID for audio cleanup")
+
 app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -85,11 +159,22 @@ except Exception as e:
     logger.warning(f"Failed to initialize LLM processor: {e}. Text processing will be disabled.")
     llm_processor = None
 
+# Background task reference for cleanup
+_cleanup_task = None
+
 # Application lifecycle events
 @app.on_event("startup")
 async def startup_event():
-    """Start the word count monitoring service"""
+    """Start the word count monitoring service and ensure audio storage exists"""
+    global _cleanup_task
     logger.info("Starting application...")
+    
+    # Ensure audio storage directory exists
+    ensure_audio_storage_exists()
+    
+    # Start background audio cleanup task
+    _cleanup_task = asyncio.create_task(cleanup_old_audio_files())
+    logger.info("Audio cleanup background task started")
     
     # Start the word count monitor if Notion is configured
     if notion_service.enabled:
@@ -104,7 +189,17 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean shutdown of services"""
+    global _cleanup_task
     logger.info("Shutting down application...")
+    
+    # Stop the audio cleanup task
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Audio cleanup task stopped")
     
     # Stop the word count monitor
     await word_count_monitor.stop()
@@ -181,6 +276,16 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket connection accepted")
     
+    # Generate unique session ID for this connection
+    session_id = generate_session_id()
+    logger.info(f"Generated session ID: {session_id}")
+    
+    # Send session_id to frontend first
+    await websocket.send_text(json.dumps({
+        "type": "session_created",
+        "session_id": session_id
+    }))
+    
     # Add initial status update here
     await websocket.send_text(json.dumps({
         "type": "status",
@@ -190,6 +295,8 @@ async def websocket_endpoint(websocket: WebSocket):
     client = None
     audio_processor = AudioProcessor()
     audio_buffer = []
+    # Buffer for storing audio to file (accumulated during recording)
+    audio_storage_buffer = []
     recording_stopped = asyncio.Event()
     openai_ready = asyncio.Event()
     pending_audio_chunks = []
@@ -286,10 +393,11 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Handled response.done")
         recording_stopped.set()
         
-        # Process transcript for Notion integration (async to not block the response)
+        # Note: Automatic Notion creation is disabled
+        # User must manually confirm transcript via /api/v1/confirm-notion
+        # The transcript is sent to frontend for user review
         current_transcript = complete_transcript.strip()
-        if current_transcript and NOTION_AUTO_CREATE:
-            asyncio.create_task(create_notion_note_from_transcript(current_transcript))
+        logger.info(f"Transcription complete, awaiting user confirmation: {current_transcript[:100]}...")
         
         # reset transcript to avoid cumulative note content
         complete_transcript = ""
@@ -299,6 +407,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 await client.close()
                 client = None
                 openai_ready.clear()
+                # Send transcription_complete event with session_id for frontend to track
+                await websocket.send_text(json.dumps({
+                    "type": "transcription_complete",
+                    "session_id": session_id
+                }))
                 await websocket.send_text(json.dumps({
                     "type": "status",
                     "status": "idle"
@@ -329,6 +442,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     if "bytes" in data:
                         processed_audio = audio_processor.process_audio_chunk(data["bytes"])
+                        
+                        # Always store audio for potential re-transcription
+                        audio_storage_buffer.append(processed_audio)
+                        
                         if not openai_ready.is_set():
                             logger.debug("OpenAI not ready, buffering audio chunk")
                             pending_audio_chunks.append(processed_audio)
@@ -362,6 +479,10 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Reset transcript for new session
                             complete_transcript = ""
                             session_start_time = datetime.now()
+                            
+                            # Clear audio storage buffer for new recording
+                            audio_storage_buffer.clear()
+                            logger.info(f"Started new recording session: {session_id}")
                             
                             # Update status to connecting while initializing OpenAI
                             await websocket.send_text(json.dumps({
@@ -407,6 +528,15 @@ async def websocket_endpoint(websocket: WebSocket):
                                     async with audio_send_lock:
                                         pending_audio_operations = 0
                                         all_audio_sent.set()
+                                
+                                # Save audio to file for potential re-transcription
+                                if audio_storage_buffer:
+                                    audio_file_path = get_audio_file_path(session_id)
+                                    try:
+                                        audio_processor.save_audio_buffer(audio_storage_buffer, audio_file_path)
+                                        logger.info(f"Saved audio file: {audio_file_path} ({len(audio_storage_buffer)} chunks)")
+                                    except Exception as e:
+                                        logger.error(f"Failed to save audio file: {e}")
                                 
                                 # Add a small buffer to ensure network operations complete
                                 await asyncio.sleep(0.1)
@@ -667,6 +797,90 @@ async def word_count_webhook(request: dict):
     except Exception as e:
         logger.error(f"Error in webhook handler: {e}")
         return {"success": False, "error": str(e)}
+
+# Re-transcription and Notion confirmation endpoints
+@app.post(
+    "/api/v1/retranscribe",
+    response_model=RetranscribeResponse,
+    summary="Re-transcribe Audio",
+    description="Re-transcribe a saved audio file using Gemini API."
+)
+async def retranscribe_audio(request: RetranscribeRequest):
+    """Re-transcribe audio using Gemini when the initial transcription is unsatisfactory"""
+    try:
+        audio_file_path = get_audio_file_path(request.session_id)
+        
+        if not os.path.exists(audio_file_path):
+            logger.error(f"Audio file not found: {audio_file_path}")
+            return RetranscribeResponse(
+                success=False,
+                error=f"Audio file not found, session_id: {request.session_id}"
+            )
+        
+        logger.info(f"Re-transcribing audio file: {audio_file_path}")
+        
+        # Get the Gemini transcriber and transcribe
+        transcriber = get_gemini_transcriber()
+        result = await transcriber.transcribe(audio_file_path)
+        
+        if result.success:
+            logger.info(f"Re-transcription successful: {result.text[:100]}...")
+            return RetranscribeResponse(
+                success=True,
+                text=result.text
+            )
+        else:
+            logger.error(f"Re-transcription failed: {result.error}")
+            return RetranscribeResponse(
+                success=False,
+                error=result.error
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in retranscribe_audio: {e}", exc_info=True)
+        return RetranscribeResponse(
+            success=False,
+            error=f"Error during re-transcription: {str(e)}"
+        )
+
+@app.post(
+    "/api/v1/confirm-notion",
+    summary="Confirm and Save to Notion",
+    description="Manually confirm and save transcript to Notion after user approval."
+)
+async def confirm_notion(request: ConfirmNotionRequest):
+    """Save the confirmed transcript to Notion and clean up audio file"""
+    try:
+        if not request.transcript.strip():
+            return {"success": False, "error": "Transcript is empty"}
+        
+        logger.info(f"Confirming transcript to Notion: {request.transcript[:100]}...")
+        
+        # Create Notion note
+        result = await create_notion_note_from_transcript(request.transcript)
+        
+        # Clean up audio file if session_id provided
+        if request.session_id:
+            audio_file_path = get_audio_file_path(request.session_id)
+            if os.path.exists(audio_file_path):
+                try:
+                    os.remove(audio_file_path)
+                    logger.info(f"Cleaned up audio file: {audio_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up audio file: {e}")
+        
+        return {
+            "success": True,
+            "message": "Successfully saved to Notion",
+            "result": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in confirm_notion: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Error saving to Notion: {str(e)}"
+        }
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=3005)
