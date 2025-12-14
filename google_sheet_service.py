@@ -88,6 +88,14 @@ class GoogleSheetService:
         now = datetime.now(UTC_PLUS_8)
         return now.strftime("%m/%d %H:%M")
     
+    def _get_column_indices(self, worksheet) -> dict:
+        """
+        讀取第一行標題，返回欄位名稱到索引的映射。
+        例如：{"Date": 0, "Project": 1, "Category": 2, "Content": 3}
+        """
+        header_row = worksheet.row_values(1)  # 讀取第一行
+        return {name: idx for idx, name in enumerate(header_row)}
+    
     async def insert_transcript(self, content: str, category: Optional[str] = None) -> dict:
         """
         Insert a transcript row into the Google Sheet.
@@ -126,10 +134,28 @@ class GoogleSheetService:
             # Get timestamp
             timestamp = self._get_utc8_timestamp()
             
-            # Insert row at the top (after header if exists, or at row 2)
-            # This puts newest entries at the top
-            # Row format: Date | Content | Category (if provided)
-            row_data = [timestamp, content.strip(), category or ""]
+            # Read column indices
+            col_indices = self._get_column_indices(worksheet)
+            
+            # Find the required column positions
+            date_idx = col_indices.get("Date")
+            category_idx = col_indices.get("Category")
+            content_idx = col_indices.get("Content")
+            
+            # Verify that the required columns exist
+            if date_idx is None or content_idx is None:
+                return {"success": False, "error": "Required columns not found (Date or Content)"}
+            
+            # Create an empty row (length of total columns)
+            row_data = [""] * len(col_indices)
+            
+            # Insert data into the corresponding positions
+            row_data[date_idx] = timestamp
+            row_data[content_idx] = content.strip()
+            if category_idx is not None:
+                row_data[category_idx] = category or ""
+            
+            # Insert row at the top (after header, at row 2)
             worksheet.insert_row(row_data, index=2)
             
             logger.info(f"Inserted transcript to Google Sheet: {timestamp} - {content[:50]}... (category: {category})")
