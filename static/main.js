@@ -517,6 +517,18 @@ function initializeWebSocket() {
           geminiTranscript.value = "Transcribing with Gemini...";
         }
         break;
+      case "transcript_converted":
+        // Handle Traditional Chinese conversion
+        console.log("Transcript converted to Traditional Chinese");
+        if (isDualChannelMode && isDualMode) {
+          // In dual mode, update OpenAI (left) textbox
+          openaiTranscript.value = data.content;
+        } else {
+          // In single mode, update main transcript
+          transcript.value = data.content;
+        }
+        showSuccess("已轉換為繁體中文");
+        break;
       case "transcription_complete":
         // Enable action buttons when transcription is complete
         setTranscriptionButtonsEnabled(true);

@@ -29,6 +29,7 @@ from content_analyzer import content_analyzer
 from monitor import word_count_monitor
 from gemini_transcriber import get_gemini_transcriber
 from google_sheet_service import google_sheet_service
+from chinese_converter import convert_if_needed
 
 # Audio storage configuration
 # Use /tmp for temporary audio storage (works on all systems, survives within container lifecycle)
@@ -422,6 +423,11 @@ async def websocket_endpoint(websocket: WebSocket):
         current_transcript = complete_transcript.strip()
         logger.info(f"Transcription complete, awaiting user confirmation: {current_transcript[:100]}...")
         
+        # Convert to Traditional Chinese if needed
+        converted_transcript, was_converted = convert_if_needed(current_transcript)
+        if was_converted:
+            logger.info(f"Converted transcript to Traditional Chinese: {converted_transcript[:100]}...")
+        
         # reset transcript to avoid cumulative note content
         complete_transcript = ""
         
@@ -430,6 +436,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 await client.close()
                 client = None
                 openai_ready.clear()
+                
+                # Send converted transcript to frontend for replacement
+                if was_converted:
+                    await websocket.send_text(json.dumps({
+                        "type": "transcript_converted",
+                        "content": converted_transcript,
+                        "original": current_transcript
+                    }))
+                    logger.info("Sent converted Traditional Chinese transcript to frontend")
+                
                 # Send transcription_complete event with session_id for frontend to track
                 await websocket.send_text(json.dumps({
                     "type": "transcription_complete",
