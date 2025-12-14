@@ -505,11 +505,14 @@ body.dark-theme .transcript-box.selected textarea {
     gap: 10px;
   }
 
-  /* Start button takes full width */
+  /* Start button takes full width and bolder */
   #recordButton {
     flex: none;
     width: 100%;
     min-width: unset;
+    height: 56px;
+    font-size: 1.1rem;
+    font-weight: 600;
   }
 
   /* Dual, Sheet in record-section - hide them, we'll use a separate row */
