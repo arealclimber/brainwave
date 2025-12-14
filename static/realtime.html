@@ -36,19 +36,40 @@
       >
         00:00
       </div>
-      <button id="recordButton">Start</button>
-      <div class="transcript-container">
+      <!-- 頂部控制列：Start 在左，Re-transcribe + Save to Notion 在右 -->
+      <div class="top-controls">
+        <button id="recordButton">Start</button>
+        <div class="transcription-actions">
+          <button id="retranscribeButton" class="action-button" disabled>
+            Re-transcribe
+          </button>
+          <button
+            id="confirmNotionButton"
+            class="action-button primary"
+            disabled
+          >
+            Save to Notion
+          </button>
+        </div>
+      </div>
+      <!-- 單一 textbox 容器（初始顯示） -->
+      <div id="singleTranscriptContainer" class="transcript-container">
         <textarea id="transcript"></textarea>
         <button id="copyButton" class="copy-button">Copy</button>
       </div>
-      <!-- Transcription action buttons -->
-      <div class="button-container transcription-actions">
-        <button id="retranscribeButton" class="action-button" disabled>
-          Re-transcribe
-        </button>
-        <button id="confirmNotionButton" class="action-button primary" disabled>
-          Save to Notion
-        </button>
+      <!-- 雙 textbox 容器（初始隱藏，Re-transcribe 後顯示） -->
+      <div
+        id="dualTranscriptContainer"
+        class="dual-transcript-container hidden"
+      >
+        <div class="transcript-box" id="originalBox">
+          <label>Original</label>
+          <textarea id="originalTranscript"></textarea>
+        </div>
+        <div class="transcript-box selected" id="retranscribeBox">
+          <label>Re-transcribed</label>
+          <textarea id="retranscribedTranscript"></textarea>
+        </div>
       </div>
       <div class="button-container">
         <button id="readabilityButton" class="action-button">

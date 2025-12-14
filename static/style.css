@@ -24,15 +24,29 @@ h1 {
   text-align: center;
 }
 
+/* Top controls: Start on left, actions on right */
+.top-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.top-controls .transcription-actions {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  flex: 1;
+}
+
 #recordButton {
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
+  flex: 2;
+  height: 50px;
+  border-radius: 8px;
   background-color: #88c2ff;
   border: none;
   cursor: pointer;
-  margin: 20px auto;
-  display: block;
   color: white;
   font-size: 1rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -40,7 +54,8 @@ h1 {
 }
 
 #recordButton:hover {
-  transform: scale(1.05);
+  background-color: #60a4ed;
+  transform: translateY(-2px);
 }
 
 #recordButton.recording {
@@ -317,4 +332,84 @@ body.dark-theme .action-button:disabled {
 .transcription-actions {
   margin-top: 10px;
   margin-bottom: 10px;
+}
+
+/* Hidden utility class */
+.hidden {
+  display: none !important;
+}
+
+/* Dual transcript container */
+.dual-transcript-container {
+  display: flex;
+  gap: 15px;
+  margin-top: 30px;
+}
+
+.transcript-box {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript-box label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #666;
+}
+
+.transcript-box textarea {
+  flex: 1;
+  min-height: 150px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.transcript-box.selected textarea {
+  border-color: #88c2ff;
+  box-shadow: 0 0 0 3px rgba(136, 194, 255, 0.3);
+}
+
+.transcript-box.selected label {
+  color: #88c2ff;
+  font-weight: 600;
+}
+
+/* Dark theme for dual transcript */
+body.dark-theme .transcript-box label {
+  color: #a0a0a0;
+}
+
+body.dark-theme .transcript-box.selected label {
+  color: #88c2ff;
+}
+
+body.dark-theme .transcript-box.selected textarea {
+  border-color: #88c2ff;
+  box-shadow: 0 0 0 3px rgba(136, 194, 255, 0.2);
+}
+
+/* Mobile responsive for dual transcript */
+@media (max-width: 480px) {
+  .dual-transcript-container {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .top-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .top-controls .transcription-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #recordButton {
+    width: 100%;
+    max-width: 200px;
+  }
 }

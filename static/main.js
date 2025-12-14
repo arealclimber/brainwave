@@ -13,6 +13,10 @@ let currentSessionId = null;
 let isRetranscribing = false;
 let isConfirmingNotion = false;
 
+// Dual textbox state
+let isDualMode = false;
+let selectedTranscriptBox = "retranscribe"; // 'original' or 'retranscribe'
+
 // DOM elements
 const recordButton = document.getElementById("recordButton");
 const transcript = document.getElementById("transcript");
@@ -24,6 +28,20 @@ const askAIButton = document.getElementById("askAIButton");
 const correctnessButton = document.getElementById("correctnessButton");
 const retranscribeButton = document.getElementById("retranscribeButton");
 const confirmNotionButton = document.getElementById("confirmNotionButton");
+
+// Dual textbox DOM elements
+const singleTranscriptContainer = document.getElementById(
+  "singleTranscriptContainer"
+);
+const dualTranscriptContainer = document.getElementById(
+  "dualTranscriptContainer"
+);
+const originalBox = document.getElementById("originalBox");
+const retranscribeBox = document.getElementById("retranscribeBox");
+const originalTranscript = document.getElementById("originalTranscript");
+const retranscribedTranscript = document.getElementById(
+  "retranscribedTranscript"
+);
 
 // Configuration
 const targetSeconds = 5;
@@ -78,6 +96,46 @@ function showSuccess(message) {
 function setTranscriptionButtonsEnabled(enabled) {
   if (retranscribeButton) retranscribeButton.disabled = !enabled;
   if (confirmNotionButton) confirmNotionButton.disabled = !enabled;
+}
+
+// Switch between single and dual textbox mode
+function showSingleMode() {
+  isDualMode = false;
+  singleTranscriptContainer.classList.remove("hidden");
+  dualTranscriptContainer.classList.add("hidden");
+}
+
+function showDualMode(originalText, retranscribedText) {
+  isDualMode = true;
+  originalTranscript.value = originalText;
+  retranscribedTranscript.value = retranscribedText;
+  singleTranscriptContainer.classList.add("hidden");
+  dualTranscriptContainer.classList.remove("hidden");
+  // Default select retranscribe box
+  selectTranscriptBox("retranscribe");
+}
+
+// Select a transcript box
+function selectTranscriptBox(boxType) {
+  selectedTranscriptBox = boxType;
+  originalBox.classList.remove("selected");
+  retranscribeBox.classList.remove("selected");
+
+  if (boxType === "original") {
+    originalBox.classList.add("selected");
+  } else {
+    retranscribeBox.classList.add("selected");
+  }
+}
+
+// Get selected transcript content
+function getSelectedTranscriptContent() {
+  if (isDualMode) {
+    return selectedTranscriptBox === "original"
+      ? originalTranscript.value.trim()
+      : retranscribedTranscript.value.trim();
+  }
+  return transcript.value.trim();
 }
 
 // Timer functions
@@ -223,6 +281,9 @@ async function startRecording() {
     transcript.value = "";
     enhancedTranscript.value = "";
 
+    // Reset to single textbox mode for new recording
+    showSingleMode();
+
     // Disable transcription action buttons for new recording
     setTranscriptionButtonsEnabled(false);
 
@@ -281,8 +342,11 @@ copyEnhancedButton.onclick = () =>
 retranscribeButton.onclick = async () => {
   if (isRetranscribing || !currentSessionId) return;
 
-  const inputText = transcript.value.trim();
-  if (!inputText) {
+  // Get original text before re-transcription
+  const originalText = isDualMode
+    ? originalTranscript.value.trim()
+    : transcript.value.trim();
+  if (!originalText) {
     showError("No content to re-transcribe");
     return;
   }
@@ -306,10 +370,10 @@ retranscribeButton.onclick = async () => {
       return;
     }
 
-    transcript.value = result.text;
-    transcript.scrollTop = transcript.scrollHeight;
+    // Show dual textbox mode with original and new transcription
+    showDualMode(originalText, result.text);
     showSuccess("Re-transcription complete");
-    copyToClipboard(result.text, copyButton);
+    copyToClipboard(result.text, null);
   } catch (error) {
     console.error("Error:", error);
     showError("Network error, please check connection");
@@ -325,7 +389,8 @@ retranscribeButton.onclick = async () => {
 confirmNotionButton.onclick = async () => {
   if (isConfirmingNotion) return;
 
-  const inputText = transcript.value.trim();
+  // Get content from selected textbox
+  const inputText = getSelectedTranscriptContent();
   if (!inputText) {
     showError("No content to save");
     return;
@@ -356,7 +421,9 @@ confirmNotionButton.onclick = async () => {
     showSuccess("Successfully saved to Notion!");
     // Disable buttons after successful save
     setTranscriptionButtonsEnabled(false);
-    // Clear session ID since audio file is cleaned up
+    // Reset to single mode and clear session
+    showSingleMode();
+    transcript.value = "";
     currentSessionId = null;
   } catch (error) {
     console.error("Error:", error);
@@ -388,6 +455,24 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeWebSocket();
   initializeTheme();
   if (autoStart) initializeAudioStream();
+
+  // Add click listeners for dual textbox selection
+  if (originalBox) {
+    originalBox.addEventListener("click", () =>
+      selectTranscriptBox("original")
+    );
+    originalTranscript.addEventListener("focus", () =>
+      selectTranscriptBox("original")
+    );
+  }
+  if (retranscribeBox) {
+    retranscribeBox.addEventListener("click", () =>
+      selectTranscriptBox("retranscribe")
+    );
+    retranscribedTranscript.addEventListener("focus", () =>
+      selectTranscriptBox("retranscribe")
+    );
+  }
 });
 // Readability and AI handlers
 readabilityButton.onclick = async () => {
