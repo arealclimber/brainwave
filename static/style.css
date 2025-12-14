@@ -1,20 +1,19 @@
 body {
   font-family: system-ui, -apple-system, sans-serif;
-  background: #f5f5f7;
+  background: #ffffff;
   color: #1d1d1f;
   line-height: 1.5;
+  margin: 0;
+  padding: 0;
 }
 
 .container {
   max-width: 800px;
-  margin: 20px auto;
-  padding: 20px;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  width: 90%;
+  margin: 0 auto;
+  padding: 0 20px 15px 20px;
+  background: transparent;
+  width: 95%;
   position: relative;
-  /* Add this line to make it a positioning context */
 }
 
 h1 {
@@ -105,10 +104,14 @@ body.dark-theme .dual-channel-toggle:hover {
   animation: pulse 2s infinite;
 }
 
-.transcript-container,
-.enhanced-transcript-container {
+.transcript-container {
   position: relative;
   margin-top: 30px;
+}
+
+.enhanced-transcript-container {
+  position: relative;
+  margin-top: 0;
 }
 
 textarea {
@@ -185,8 +188,8 @@ textarea {
 
 @media (max-width: 480px) {
   .container {
-    margin: 10px auto;
-    padding: 15px;
+    margin: 0 auto;
+    padding: 0 15px 10px 15px;
   }
 
   h1 {
@@ -211,10 +214,20 @@ textarea {
   }
 }
 
+/* Status bar - top row with theme toggle, timer, connection status */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.timer {
+  font-size: 1.2rem;
+  text-align: center;
+}
+
 .connection-status {
-  position: absolute;
-  top: 20px;
-  right: 20px;
   width: 12px;
   height: 12px;
   border-radius: 50%;
@@ -267,9 +280,6 @@ body.dark-theme .copy-button {
 }
 
 .theme-toggle {
-  position: absolute;
-  top: 20px;
-  left: 20px;
   background: none;
   border: none;
   font-size: 1.5rem;
@@ -285,7 +295,7 @@ body.dark-theme .copy-button {
 
 /* Dark theme specific styles */
 body.dark-theme .container {
-  background: #2c2c2e;
+  background: transparent;
   color: #f5f5f7;
 }
 
@@ -400,7 +410,7 @@ body.dark-theme .action-button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .box-header label {
@@ -539,7 +549,7 @@ body.dark-theme .transcript-box.selected textarea {
 
 /* Enhanced section with tabs */
 .enhanced-section {
-  margin-top: 20px;
+  margin-top: 15px;
 }
 
 /* Result tabs */
@@ -547,11 +557,12 @@ body.dark-theme .transcript-box.selected textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
+  padding-left: 8px;
 }
 
 .result-tabs .copy-btn-small {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .result-tab {
@@ -583,10 +594,10 @@ body.dark-theme .transcript-box.selected textarea {
 
 /* Result source label */
 .result-source {
-  font-size: 0.85rem;
+  font-size: 0.7rem;
   color: #888;
-  margin-bottom: 8px;
-  padding-left: 4px;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .result-source:empty {

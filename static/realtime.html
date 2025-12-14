@@ -28,13 +28,11 @@
     <div id="successMessage" class="message success"></div>
 
     <div class="container">
-      <div id="connectionStatus" class="connection-status"></div>
-      <button id="themeToggle" class="theme-toggle">🌙</button>
-      <div
-        id="timer"
-        style="text-align: center; margin-bottom: 15px; font-size: 1.2rem"
-      >
-        00:00
+      <!-- 頂部狀態列：Dark Mode、Timer、連線狀態 -->
+      <div class="status-bar">
+        <button id="themeToggle" class="theme-toggle">🌙</button>
+        <div id="timer" class="timer">00:00</div>
+        <div id="connectionStatus" class="connection-status"></div>
       </div>
       <!-- 頂部控制列：Start + 雙通道 checkbox 在左，Re-transcribe + Save to Notion 在右 -->
       <div class="top-controls">
@@ -119,7 +117,7 @@
       </div>
       <!-- Enhanced section with tabs -->
       <div class="enhanced-section">
-        <!-- Tab 列 -->
+        <!-- Tab 列 + source -->
         <div class="result-tabs">
           <button class="result-tab" id="tabRead" disabled>Read</button>
           <button class="result-tab" id="tabCorrected" disabled>
@@ -127,9 +125,8 @@
           </button>
           <button class="result-tab" id="tabAsked" disabled>Asked</button>
           <button class="copy-btn-small" id="copyEnhancedButton">Copy</button>
+          <span class="result-source" id="resultSource"></span>
         </div>
-        <!-- 來源標註 -->
-        <div class="result-source" id="resultSource"></div>
         <!-- Textarea -->
         <div class="enhanced-transcript-container">
           <textarea id="enhancedTranscript"></textarea>
