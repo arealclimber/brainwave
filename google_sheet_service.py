@@ -88,12 +88,13 @@ class GoogleSheetService:
         now = datetime.now(UTC_PLUS_8)
         return now.strftime("%m/%d %H:%M")
     
-    async def insert_transcript(self, content: str) -> dict:
+    async def insert_transcript(self, content: str, category: Optional[str] = None) -> dict:
         """
         Insert a transcript row into the Google Sheet.
         
         Args:
             content: The transcript content to insert
+            category: Optional category (e.g., 'todo')
             
         Returns:
             dict with success status and message
@@ -127,10 +128,11 @@ class GoogleSheetService:
             
             # Insert row at the top (after header if exists, or at row 2)
             # This puts newest entries at the top
-            row_data = [timestamp, content.strip()]
+            # Row format: Date | Content | Category (if provided)
+            row_data = [timestamp, content.strip(), category or ""]
             worksheet.insert_row(row_data, index=2)
             
-            logger.info(f"Inserted transcript to Google Sheet: {timestamp} - {content[:50]}...")
+            logger.info(f"Inserted transcript to Google Sheet: {timestamp} - {content[:50]}... (category: {category})")
             
             return {
                 "success": True,

@@ -18,6 +18,7 @@ let isDualMode = false;
 let selectedTranscriptBox = "openai"; // 'openai' or 'gemini'
 let isDualChannelMode = true; // Whether dual channel mode is enabled via checkbox (default: true)
 let isSaveToSheetEnabled = true; // Whether save to sheet is enabled via checkbox (default: true)
+let isTodoEnabled = true; // Whether todo category is enabled via checkbox (default: true)
 
 // Tab system state
 const tabResults = {
@@ -62,6 +63,7 @@ const leftBoxLabel = document.getElementById("leftBoxLabel");
 const rightBoxLabel = document.getElementById("rightBoxLabel");
 const dualChannelCheckbox = document.getElementById("dualChannelCheckbox");
 const saveToSheetCheckbox = document.getElementById("saveToSheetCheckbox");
+const todoCheckbox = document.getElementById("todoCheckbox");
 const copyOpenaiBtn = document.getElementById("copyOpenaiBtn");
 const copyGeminiBtn = document.getElementById("copyGeminiBtn");
 
@@ -304,10 +306,18 @@ async function autoSaveToSheet() {
   }
 
   try {
+    const requestBody = { content: content };
+    // Read checkbox state directly to ensure we get the current value
+    const todoChecked = todoCheckbox && todoCheckbox.checked;
+    if (todoChecked) {
+      requestBody.category = "todo";
+    }
+    console.log("Saving to Sheet with category:", requestBody.category);
+
     const response = await fetch("/api/v1/save-to-sheet", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: content }),
+      body: JSON.stringify(requestBody),
     });
 
     const result = await response.json();
@@ -540,6 +550,8 @@ async function startRecording() {
     isDualChannelMode = dualChannelCheckbox && dualChannelCheckbox.checked;
     // Check if save to sheet is enabled
     isSaveToSheetEnabled = saveToSheetCheckbox && saveToSheetCheckbox.checked;
+    // Check if todo category is enabled
+    isTodoEnabled = todoCheckbox && todoCheckbox.checked;
 
     transcript.value = "";
     enhancedTranscript.value = "";

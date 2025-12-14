@@ -157,6 +157,7 @@ class UpdateCheckboxRequest(BaseModel):
 # Google Sheet models
 class SaveToSheetRequest(BaseModel):
     content: str = Field(..., description="The transcript content to save to Google Sheet")
+    category: Optional[str] = Field(None, description="Optional category (e.g., 'todo')")
 
 app = FastAPI()
 
@@ -1040,9 +1041,12 @@ async def save_to_sheet(request: SaveToSheetRequest):
         if not request.content.strip():
             return {"success": False, "error": "Content is empty"}
         
-        logger.info(f"Saving to Google Sheet: {request.content[:50]}...")
+        logger.info(f"Saving to Google Sheet: {request.content[:50]}... (category: {request.category})")
         
-        result = await google_sheet_service.insert_transcript(request.content)
+        result = await google_sheet_service.insert_transcript(
+            content=request.content,
+            category=request.category
+        )
         
         return result
         
