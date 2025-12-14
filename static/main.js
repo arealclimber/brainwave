@@ -15,7 +15,24 @@ let isConfirmingNotion = false;
 
 // Dual textbox state
 let isDualMode = false;
-let selectedTranscriptBox = "retranscribe"; // 'original' or 'retranscribe'
+let selectedTranscriptBox = "openai"; // 'openai' or 'gemini'
+let isDualChannelMode = true; // Whether dual channel mode is enabled via checkbox (default: true)
+
+// Tab system state
+const tabResults = {
+  read: { content: "", source: "" },
+  corrected: { content: "", source: "" },
+  asked: { content: "", source: "" },
+};
+let activeTab = null;
+let savedNotionPageId = null; // Remember saved Notion page ID for appending
+
+// Track which tab results have been appended to Notion
+const tabAppendedToNotion = {
+  read: false,
+  corrected: false,
+  asked: false,
+};
 
 // DOM elements
 const recordButton = document.getElementById("recordButton");
@@ -36,12 +53,21 @@ const singleTranscriptContainer = document.getElementById(
 const dualTranscriptContainer = document.getElementById(
   "dualTranscriptContainer"
 );
-const originalBox = document.getElementById("originalBox");
-const retranscribeBox = document.getElementById("retranscribeBox");
-const originalTranscript = document.getElementById("originalTranscript");
-const retranscribedTranscript = document.getElementById(
-  "retranscribedTranscript"
-);
+const openaiBox = document.getElementById("openaiBox");
+const geminiBox = document.getElementById("geminiBox");
+const openaiTranscript = document.getElementById("openaiTranscript");
+const geminiTranscript = document.getElementById("geminiTranscript");
+const leftBoxLabel = document.getElementById("leftBoxLabel");
+const rightBoxLabel = document.getElementById("rightBoxLabel");
+const dualChannelCheckbox = document.getElementById("dualChannelCheckbox");
+const copyOpenaiBtn = document.getElementById("copyOpenaiBtn");
+const copyGeminiBtn = document.getElementById("copyGeminiBtn");
+
+// Tab DOM elements
+const tabRead = document.getElementById("tabRead");
+const tabCorrected = document.getElementById("tabCorrected");
+const tabAsked = document.getElementById("tabAsked");
+const resultSource = document.getElementById("resultSource");
 
 // Configuration
 const targetSeconds = 5;
@@ -105,37 +131,196 @@ function showSingleMode() {
   dualTranscriptContainer.classList.add("hidden");
 }
 
-function showDualMode(originalText, retranscribedText) {
+function showDualMode(leftText, rightText, isDualChannel = false) {
   isDualMode = true;
-  originalTranscript.value = originalText;
-  retranscribedTranscript.value = retranscribedText;
+  openaiTranscript.value = leftText;
+  geminiTranscript.value = rightText;
   singleTranscriptContainer.classList.add("hidden");
   dualTranscriptContainer.classList.remove("hidden");
-  // Default select retranscribe box
-  selectTranscriptBox("retranscribe");
+
+  // Update labels based on mode
+  if (isDualChannel) {
+    leftBoxLabel.textContent = "OpenAI";
+    rightBoxLabel.textContent = "Gemini";
+  } else {
+    leftBoxLabel.textContent = "Original";
+    rightBoxLabel.textContent = "Re-transcribed";
+  }
+
+  // Default select openai/left box
+  selectTranscriptBox("openai");
 }
 
 // Select a transcript box
 function selectTranscriptBox(boxType) {
   selectedTranscriptBox = boxType;
-  originalBox.classList.remove("selected");
-  retranscribeBox.classList.remove("selected");
+  openaiBox.classList.remove("selected");
+  geminiBox.classList.remove("selected");
 
-  if (boxType === "original") {
-    originalBox.classList.add("selected");
+  if (boxType === "openai") {
+    openaiBox.classList.add("selected");
   } else {
-    retranscribeBox.classList.add("selected");
+    geminiBox.classList.add("selected");
   }
 }
 
 // Get selected transcript content
 function getSelectedTranscriptContent() {
   if (isDualMode) {
-    return selectedTranscriptBox === "original"
-      ? originalTranscript.value.trim()
-      : retranscribedTranscript.value.trim();
+    return selectedTranscriptBox === "openai"
+      ? openaiTranscript.value.trim()
+      : geminiTranscript.value.trim();
   }
   return transcript.value.trim();
+}
+
+// Get current source label for API requests
+function getCurrentSourceLabel() {
+  if (isDualMode) {
+    if (isDualChannelMode) {
+      return selectedTranscriptBox === "openai" ? "OpenAI" : "Gemini";
+    } else {
+      return selectedTranscriptBox === "openai" ? "Original" : "Re-transcribed";
+    }
+  }
+  return "Transcript";
+}
+
+// Tab system functions
+function switchToTab(tabName) {
+  activeTab = tabName;
+
+  // Update tab button states
+  tabRead.classList.remove("active");
+  tabCorrected.classList.remove("active");
+  tabAsked.classList.remove("active");
+
+  if (tabName === "read") {
+    tabRead.classList.add("active");
+  } else if (tabName === "corrected") {
+    tabCorrected.classList.add("active");
+  } else if (tabName === "asked") {
+    tabAsked.classList.add("active");
+  }
+
+  // Update content and source
+  const result = tabResults[tabName];
+  if (result) {
+    enhancedTranscript.value = result.content;
+    resultSource.textContent = result.source ? `Source: ${result.source}` : "";
+  }
+}
+
+function saveTabResult(tabName, content, source) {
+  tabResults[tabName] = { content, source };
+
+  // Enable the tab button
+  if (tabName === "read") {
+    tabRead.disabled = false;
+  } else if (tabName === "corrected") {
+    tabCorrected.disabled = false;
+  } else if (tabName === "asked") {
+    tabAsked.disabled = false;
+  }
+
+  // Switch to this tab
+  switchToTab(tabName);
+
+  // Auto-append to Notion if page exists
+  if (savedNotionPageId) {
+    autoAppendToNotion(tabName, content);
+  }
+}
+
+// Auto-append content to saved Notion page and update checkbox
+async function autoAppendToNotion(tabName, content) {
+  const sectionTitleMap = {
+    read: "Readability",
+    corrected: "Correctness",
+    asked: "Ask AI",
+  };
+
+  const sectionTitle = sectionTitleMap[tabName] || tabName;
+
+  try {
+    // Append content and update checkbox in parallel
+    const [appendResponse, checkboxResponse] = await Promise.all([
+      fetch("/api/v1/append-notion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page_id: savedNotionPageId,
+          section_title: sectionTitle,
+          content: content,
+        }),
+      }),
+      fetch("/api/v1/update-checkbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page_id: savedNotionPageId,
+          property_name: sectionTitle,
+          checked: true,
+        }),
+      }),
+    ]);
+
+    const appendResult = await appendResponse.json();
+    const checkboxResult = await checkboxResponse.json();
+
+    if (appendResult.success && checkboxResult.success) {
+      showSuccess(`${sectionTitle} appended to Notion`);
+      // Mark as appended
+      tabAppendedToNotion[tabName] = true;
+    } else {
+      if (!appendResult.success) {
+        console.error("Auto-append failed:", appendResult.error);
+      }
+      if (!checkboxResult.success) {
+        console.error("Checkbox update failed:", checkboxResult.error);
+      }
+    }
+  } catch (error) {
+    console.error("Auto-append error:", error);
+  }
+}
+
+// Append all pending tab results to Notion (called after Save to Notion)
+async function appendPendingTabResults() {
+  const tabsToAppend = ["read", "corrected", "asked"];
+
+  for (const tabName of tabsToAppend) {
+    const result = tabResults[tabName];
+    // If has content and not yet appended
+    if (result.content && !tabAppendedToNotion[tabName]) {
+      await autoAppendToNotion(tabName, result.content);
+    }
+  }
+}
+
+function resetTabSystem() {
+  // Reset all tab results
+  tabResults.read = { content: "", source: "" };
+  tabResults.corrected = { content: "", source: "" };
+  tabResults.asked = { content: "", source: "" };
+  activeTab = null;
+
+  // Reset append tracking
+  tabAppendedToNotion.read = false;
+  tabAppendedToNotion.corrected = false;
+  tabAppendedToNotion.asked = false;
+
+  // Disable all tabs
+  tabRead.disabled = true;
+  tabCorrected.disabled = true;
+  tabAsked.disabled = true;
+  tabRead.classList.remove("active");
+  tabCorrected.classList.remove("active");
+  tabAsked.classList.remove("active");
+
+  // Clear content
+  enhancedTranscript.value = "";
+  resultSource.textContent = "";
 }
 
 // Timer functions
@@ -241,18 +426,44 @@ function initializeWebSocket() {
         break;
       case "status":
         updateConnectionStatus(data.status);
-        if (data.status === "idle") {
+        if (data.status === "idle" && !isDualChannelMode) {
           copyToClipboard(transcript.value, copyButton);
         }
         break;
       case "text":
-        if (data.isNewResponse) {
-          transcript.value = data.content;
-          stopTimer();
+        if (isDualChannelMode && isDualMode) {
+          // Dual channel mode: OpenAI results go to left textbox
+          if (data.isNewResponse) {
+            openaiTranscript.value = data.content;
+            stopTimer();
+          } else {
+            openaiTranscript.value += data.content;
+          }
+          openaiTranscript.scrollTop = openaiTranscript.scrollHeight;
         } else {
-          transcript.value += data.content;
+          // Single channel mode: results go to main transcript
+          if (data.isNewResponse) {
+            transcript.value = data.content;
+            stopTimer();
+          } else {
+            transcript.value += data.content;
+          }
+          transcript.scrollTop = transcript.scrollHeight;
         }
-        transcript.scrollTop = transcript.scrollHeight;
+        break;
+      case "gemini_transcription":
+        // Gemini results go to right textbox (dual channel mode)
+        if (isDualMode) {
+          geminiTranscript.value = data.text;
+          geminiTranscript.scrollTop = geminiTranscript.scrollHeight;
+          showSuccess("Gemini transcription complete");
+        }
+        break;
+      case "gemini_transcribing":
+        // Show loading state for Gemini
+        if (isDualMode) {
+          geminiTranscript.value = "Transcribing with Gemini...";
+        }
         break;
       case "transcription_complete":
         // Enable action buttons when transcription is complete
@@ -278,11 +489,24 @@ async function startRecording() {
   if (isRecording) return;
 
   try {
+    // Check if dual channel mode is enabled
+    isDualChannelMode = dualChannelCheckbox && dualChannelCheckbox.checked;
+
     transcript.value = "";
     enhancedTranscript.value = "";
 
-    // Reset to single textbox mode for new recording
-    showSingleMode();
+    // Reset tab system but keep savedNotionPageId for appending
+    resetTabSystem();
+    // Note: savedNotionPageId is preserved to allow appending to the same page
+
+    // Set up UI based on mode
+    if (isDualChannelMode) {
+      // Dual channel mode: show dual textbox immediately
+      showDualMode("", "", true);
+    } else {
+      // Single channel mode: show single textbox
+      showSingleMode();
+    }
 
     // Disable transcription action buttons for new recording
     setTranscriptionButtonsEnabled(false);
@@ -303,7 +527,13 @@ async function startRecording() {
     if (!audioContext) await initAudio(stream);
 
     isRecording = true;
-    await ws.send(JSON.stringify({ type: "start_recording" }));
+    // Send start_recording with dual_channel flag
+    await ws.send(
+      JSON.stringify({
+        type: "start_recording",
+        dual_channel: isDualChannelMode,
+      })
+    );
 
     startTimer();
     recordButton.textContent = "Stop";
@@ -338,13 +568,23 @@ copyButton.onclick = () => copyToClipboard(transcript.value, copyButton);
 copyEnhancedButton.onclick = () =>
   copyToClipboard(enhancedTranscript.value, copyEnhancedButton);
 
+// Copy buttons for dual textbox
+if (copyOpenaiBtn) {
+  copyOpenaiBtn.onclick = () =>
+    copyToClipboard(openaiTranscript.value, copyOpenaiBtn);
+}
+if (copyGeminiBtn) {
+  copyGeminiBtn.onclick = () =>
+    copyToClipboard(geminiTranscript.value, copyGeminiBtn);
+}
+
 // Re-transcription button handler
 retranscribeButton.onclick = async () => {
   if (isRetranscribing || !currentSessionId) return;
 
   // Get original text before re-transcription
   const originalText = isDualMode
-    ? originalTranscript.value.trim()
+    ? openaiTranscript.value.trim()
     : transcript.value.trim();
   if (!originalText) {
     showError("No content to re-transcribe");
@@ -357,6 +597,11 @@ retranscribeButton.onclick = async () => {
     retranscribeButton.disabled = true;
     startTimer();
 
+    // If already in dual mode, clear right textbox and show loading
+    if (isDualMode) {
+      geminiTranscript.value = "Re-transcribing...";
+    }
+
     const response = await fetch("/api/v1/retranscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -367,11 +612,20 @@ retranscribeButton.onclick = async () => {
 
     if (!result.success) {
       showError(result.error || "Re-transcription failed, please try again");
+      if (isDualMode) {
+        geminiTranscript.value = "";
+      }
       return;
     }
 
-    // Show dual textbox mode with original and new transcription
-    showDualMode(originalText, result.text);
+    if (isDualMode) {
+      // Already in dual mode: just update the right textbox
+      geminiTranscript.value = result.text;
+      selectTranscriptBox("gemini");
+    } else {
+      // Switch to dual mode with original and new transcription
+      showDualMode(originalText, result.text, false);
+    }
     showSuccess("Re-transcription complete");
     copyToClipboard(result.text, null);
   } catch (error) {
@@ -418,12 +672,19 @@ confirmNotionButton.onclick = async () => {
       return;
     }
 
+    // Save the page_id for appending later
+    if (result.page_id) {
+      savedNotionPageId = result.page_id;
+      console.log("Saved Notion page ID:", savedNotionPageId);
+
+      // Append any pending tab results that were created before Save to Notion
+      await appendPendingTabResults();
+    }
+
     showSuccess("Successfully saved to Notion!");
-    // Disable buttons after successful save
-    setTranscriptionButtonsEnabled(false);
-    // Reset to single mode and clear session
-    showSingleMode();
-    transcript.value = "";
+    // Disable Save to Notion button after successful save
+    confirmNotionButton.disabled = true;
+    // Clear session ID since audio file is cleaned up
     currentSessionId = null;
   } catch (error) {
     console.error("Error:", error);
@@ -431,7 +692,6 @@ confirmNotionButton.onclick = async () => {
   } finally {
     isConfirmingNotion = false;
     confirmNotionButton.textContent = "Save to Notion";
-    confirmNotionButton.disabled = false;
     stopTimer();
   }
 };
@@ -457,29 +717,38 @@ document.addEventListener("DOMContentLoaded", () => {
   if (autoStart) initializeAudioStream();
 
   // Add click listeners for dual textbox selection
-  if (originalBox) {
-    originalBox.addEventListener("click", () =>
-      selectTranscriptBox("original")
-    );
-    originalTranscript.addEventListener("focus", () =>
-      selectTranscriptBox("original")
+  if (openaiBox) {
+    openaiBox.addEventListener("click", () => selectTranscriptBox("openai"));
+    openaiTranscript.addEventListener("focus", () =>
+      selectTranscriptBox("openai")
     );
   }
-  if (retranscribeBox) {
-    retranscribeBox.addEventListener("click", () =>
-      selectTranscriptBox("retranscribe")
+  if (geminiBox) {
+    geminiBox.addEventListener("click", () => selectTranscriptBox("gemini"));
+    geminiTranscript.addEventListener("focus", () =>
+      selectTranscriptBox("gemini")
     );
-    retranscribedTranscript.addEventListener("focus", () =>
-      selectTranscriptBox("retranscribe")
-    );
+  }
+
+  // Add click listeners for result tabs
+  if (tabRead) {
+    tabRead.addEventListener("click", () => switchToTab("read"));
+  }
+  if (tabCorrected) {
+    tabCorrected.addEventListener("click", () => switchToTab("corrected"));
+  }
+  if (tabAsked) {
+    tabAsked.addEventListener("click", () => switchToTab("asked"));
   }
 });
+
 // Readability and AI handlers
 readabilityButton.onclick = async () => {
   startTimer();
-  const inputText = transcript.value.trim();
+  const inputText = getSelectedTranscriptContent();
+  const sourceLabel = getCurrentSourceLabel();
   if (!inputText) {
-    alert("Please enter text to enhance readability.");
+    showError("Please enter text to enhance readability.");
     stopTimer();
     return;
   }
@@ -505,20 +774,24 @@ readabilityButton.onclick = async () => {
       enhancedTranscript.scrollTop = enhancedTranscript.scrollHeight;
     }
 
+    // Save to tab system
+    saveTabResult("read", fullText, sourceLabel);
+
     if (!isMobileDevice()) copyToClipboard(fullText, copyEnhancedButton);
     stopTimer();
   } catch (error) {
     console.error("Error:", error);
-    alert("Error enhancing readability");
+    showError("Error enhancing readability");
     stopTimer();
   }
 };
 
 askAIButton.onclick = async () => {
   startTimer();
-  const inputText = transcript.value.trim();
+  const inputText = getSelectedTranscriptContent();
+  const sourceLabel = getCurrentSourceLabel();
   if (!inputText) {
-    alert("Please enter text to ask AI about.");
+    showError("Please enter text to ask AI about.");
     stopTimer();
     return;
   }
@@ -534,20 +807,25 @@ askAIButton.onclick = async () => {
 
     const result = await response.json();
     enhancedTranscript.value = result.answer;
+
+    // Save to tab system
+    saveTabResult("asked", result.answer, sourceLabel);
+
     if (!isMobileDevice()) copyToClipboard(result.answer, copyEnhancedButton);
     stopTimer();
   } catch (error) {
     console.error("Error:", error);
-    alert("Error asking AI");
+    showError("Error asking AI");
     stopTimer();
   }
 };
 
 correctnessButton.onclick = async () => {
   startTimer();
-  const inputText = transcript.value.trim();
+  const inputText = getSelectedTranscriptContent();
+  const sourceLabel = getCurrentSourceLabel();
   if (!inputText) {
-    alert("Please enter text to check for correctness.");
+    showError("Please enter text to check for correctness.");
     stopTimer();
     return;
   }
@@ -573,11 +851,13 @@ correctnessButton.onclick = async () => {
       enhancedTranscript.scrollTop = enhancedTranscript.scrollHeight;
     }
 
-    if (!isMobileDevice()) copyToClipboard(fullText, copyEnhancedButton);
+    // Save to tab system
+    saveTabResult("corrected", fullText, sourceLabel);
+
     stopTimer();
   } catch (error) {
     console.error("Error:", error);
-    alert("Error checking correctness");
+    showError("Error checking correctness");
     stopTimer();
   }
 };

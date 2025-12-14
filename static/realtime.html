@@ -36,9 +36,15 @@
       >
         00:00
       </div>
-      <!-- 頂部控制列：Start 在左，Re-transcribe + Save to Notion 在右 -->
+      <!-- 頂部控制列：Start + 雙通道 checkbox 在左，Re-transcribe + Save to Notion 在右 -->
       <div class="top-controls">
-        <button id="recordButton">Start</button>
+        <div class="record-section">
+          <button id="recordButton">Start</button>
+          <label class="dual-channel-toggle">
+            <input type="checkbox" id="dualChannelCheckbox" checked />
+            <span>Dual</span>
+          </label>
+        </div>
         <div class="transcription-actions">
           <button id="retranscribeButton" class="action-button" disabled>
             Re-transcribe
@@ -57,18 +63,24 @@
         <textarea id="transcript"></textarea>
         <button id="copyButton" class="copy-button">Copy</button>
       </div>
-      <!-- 雙 textbox 容器（初始隱藏，Re-transcribe 後顯示） -->
+      <!-- 雙 textbox 容器（初始隱藏，雙通道模式或 Re-transcribe 後顯示） -->
       <div
         id="dualTranscriptContainer"
         class="dual-transcript-container hidden"
       >
-        <div class="transcript-box" id="originalBox">
-          <label>Original</label>
-          <textarea id="originalTranscript"></textarea>
+        <div class="transcript-box selected" id="openaiBox">
+          <div class="box-header">
+            <label id="leftBoxLabel">OpenAI</label>
+            <button class="copy-btn-small" id="copyOpenaiBtn">Copy</button>
+          </div>
+          <textarea id="openaiTranscript"></textarea>
         </div>
-        <div class="transcript-box selected" id="retranscribeBox">
-          <label>Re-transcribed</label>
-          <textarea id="retranscribedTranscript"></textarea>
+        <div class="transcript-box" id="geminiBox">
+          <div class="box-header">
+            <label id="rightBoxLabel">Gemini</label>
+            <button class="copy-btn-small" id="copyGeminiBtn">Copy</button>
+          </div>
+          <textarea id="geminiTranscript"></textarea>
         </div>
       </div>
       <div class="button-container">
@@ -80,9 +92,23 @@
         </button>
         <button id="askAIButton" class="action-button">Ask AI</button>
       </div>
-      <div class="enhanced-transcript-container">
-        <textarea id="enhancedTranscript"></textarea>
-        <button id="copyEnhancedButton" class="copy-button">Copy</button>
+      <!-- Enhanced section with tabs -->
+      <div class="enhanced-section">
+        <!-- Tab 列 -->
+        <div class="result-tabs">
+          <button class="result-tab" id="tabRead" disabled>Read</button>
+          <button class="result-tab" id="tabCorrected" disabled>
+            Corrected
+          </button>
+          <button class="result-tab" id="tabAsked" disabled>Asked</button>
+          <button class="copy-btn-small" id="copyEnhancedButton">Copy</button>
+        </div>
+        <!-- 來源標註 -->
+        <div class="result-source" id="resultSource"></div>
+        <!-- Textarea -->
+        <div class="enhanced-transcript-container">
+          <textarea id="enhancedTranscript"></textarea>
+        </div>
       </div>
     </div>
     <script src="static/main.js"></script>

@@ -359,6 +359,64 @@ class NotionService:
         
         return total_words
     
+    async def append_to_page(self, page_id: str, section_title: str, content: str) -> bool:
+        """Append content with H1 section title to an existing page"""
+        if not self.enabled:
+            logger.warning("Notion service not enabled, skipping append")
+            return False
+            
+        try:
+            # Create blocks to append: H1 title + content paragraphs
+            blocks_to_append = [
+                {
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": section_title
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+            
+            # Add content as paragraphs (split by 2000 chars limit)
+            remaining_content = content
+            while remaining_content:
+                chunk = remaining_content[:2000]
+                remaining_content = remaining_content[2000:]
+                blocks_to_append.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": chunk
+                                }
+                            }
+                        ]
+                    }
+                })
+            
+            # Append blocks to the page
+            self.client.blocks.children.append(
+                block_id=page_id,
+                children=blocks_to_append
+            )
+            
+            logger.info(f"Successfully appended '{section_title}' to page {page_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to append to page {page_id}: {e}")
+            return False
+
     async def update_word_count(self, page_id: str, word_count: int) -> bool:
         """Update the Words field for a specific page"""
         if not self.enabled:
@@ -403,6 +461,28 @@ class NotionService:
         except Exception as e:
             logger.error(f"Failed to calculate and update word count for page {page_id}: {e}")
             return None
+
+    async def update_checkbox(self, page_id: str, property_name: str, checked: bool = True) -> bool:
+        """Update a checkbox property for a specific page"""
+        if not self.enabled:
+            return False
+            
+        try:
+            self.client.pages.update(
+                page_id=page_id,
+                properties={
+                    property_name: {
+                        "checkbox": checked
+                    }
+                }
+            )
+            
+            logger.info(f"Updated checkbox '{property_name}' for page {page_id}: {checked}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update checkbox '{property_name}' for page {page_id}: {e}")
+            return False
 
 # Global instance
 notion_service = NotionService()

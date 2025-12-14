@@ -136,6 +136,18 @@ class ConfirmNotionRequest(BaseModel):
     transcript: str = Field(..., description="The transcript text to save to Notion")
     session_id: Optional[str] = Field(None, description="The session ID for audio cleanup")
 
+# Append Notion models
+class AppendNotionRequest(BaseModel):
+    page_id: str = Field(..., description="The Notion page ID to append to")
+    section_title: str = Field(..., description="The section title (e.g., 'Readability', 'Correctness', 'Ask AI')")
+    content: str = Field(..., description="The content to append")
+
+# Checkbox update models
+class UpdateCheckboxRequest(BaseModel):
+    page_id: str = Field(..., description="The Notion page ID to update")
+    property_name: str = Field(..., description="The checkbox property name (e.g., 'Readability', 'Correctness', 'Ask AI')")
+    checked: bool = Field(True, description="Whether to check or uncheck the checkbox")
+
 app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -302,6 +314,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # Track complete transcript for Notion integration
     complete_transcript = ""
     session_start_time = datetime.now()
+    
+    # Dual channel mode flag
+    dual_channel_mode = False
     
     async def initialize_openai():
         nonlocal client
@@ -473,6 +488,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             session_id = generate_session_id()
                             logger.info(f"Generated new session ID: {session_id}")
                             
+                            # Check if dual channel mode is enabled
+                            nonlocal dual_channel_mode
+                            dual_channel_mode = msg.get("dual_channel", False)
+                            logger.info(f"Dual channel mode: {dual_channel_mode}")
+                            
                             # Send new session_id to frontend
                             await websocket.send_text(json.dumps({
                                 "type": "session_created",
@@ -533,6 +553,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                         all_audio_sent.set()
                                 
                                 # Save audio to file for potential re-transcription
+                                audio_file_path = None
                                 if audio_storage_buffer:
                                     audio_file_path = get_audio_file_path(session_id)
                                     try:
@@ -540,6 +561,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                         logger.info(f"Saved audio file: {audio_file_path} ({len(audio_storage_buffer)} chunks)")
                                     except Exception as e:
                                         logger.error(f"Failed to save audio file: {e}")
+                                        audio_file_path = None
                                 
                                 # Add a small buffer to ensure network operations complete
                                 await asyncio.sleep(0.1)
@@ -554,6 +576,36 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "type": "status",
                                     "status": "connected"
                                 }))
+                                
+                                # If dual channel mode is enabled, also transcribe with Gemini
+                                if dual_channel_mode and audio_file_path:
+                                    logger.info("Dual channel mode: Starting Gemini transcription...")
+                                    await websocket.send_text(json.dumps({
+                                        "type": "gemini_transcribing"
+                                    }))
+                                    
+                                    try:
+                                        transcriber = get_gemini_transcriber()
+                                        gemini_result = await transcriber.transcribe(audio_file_path)
+                                        
+                                        if gemini_result.success:
+                                            logger.info(f"Gemini transcription successful: {gemini_result.text[:100]}...")
+                                            await websocket.send_text(json.dumps({
+                                                "type": "gemini_transcription",
+                                                "text": gemini_result.text
+                                            }))
+                                        else:
+                                            logger.error(f"Gemini transcription failed: {gemini_result.error}")
+                                            await websocket.send_text(json.dumps({
+                                                "type": "error",
+                                                "content": f"Gemini transcription failed: {gemini_result.error}"
+                                            }))
+                                    except Exception as e:
+                                        logger.error(f"Error in Gemini transcription: {e}")
+                                        await websocket.send_text(json.dumps({
+                                            "type": "error",
+                                            "content": f"Gemini transcription error: {str(e)}"
+                                        }))
 
                 except asyncio.TimeoutError:
                     logger.debug("No message received for 30 seconds")
@@ -627,8 +679,10 @@ async def create_notion_note_from_transcript(transcript: str):
         
         if result:
             logger.info(f"Successfully created Notion note: {result['url']}")
+            return result  # Return the result containing page_id
         else:
             logger.warning("Failed to create Notion note - service may be disabled")
+            return None
             
     except Exception as e:
         logger.error(f"Error creating Notion note from transcript: {e}", exc_info=True)
@@ -872,9 +926,13 @@ async def confirm_notion(request: ConfirmNotionRequest):
                 except Exception as e:
                     logger.warning(f"Failed to clean up audio file: {e}")
         
+        # Extract page_id from result
+        page_id = result.get("page_id") if result else None
+        
         return {
             "success": True,
             "message": "Successfully saved to Notion",
+            "page_id": page_id,
             "result": result
         }
         
@@ -883,6 +941,78 @@ async def confirm_notion(request: ConfirmNotionRequest):
         return {
             "success": False,
             "error": f"Error saving to Notion: {str(e)}"
+        }
+
+@app.post(
+    "/api/v1/append-notion",
+    summary="Append Content to Notion Page",
+    description="Append additional content (like Readability, Correctness results) to an existing Notion page."
+)
+async def append_notion(request: AppendNotionRequest):
+    """Append content with H1 section title to an existing Notion page"""
+    try:
+        if not request.content.strip():
+            return {"success": False, "error": "Content is empty"}
+        
+        logger.info(f"Appending to Notion page {request.page_id}: {request.section_title}")
+        
+        # Append to the Notion page
+        success = await notion_service.append_to_page(
+            page_id=request.page_id,
+            section_title=request.section_title,
+            content=request.content
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Successfully appended {request.section_title} to Notion"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to append to Notion page"
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in append_notion: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Error appending to Notion: {str(e)}"
+        }
+
+@app.post(
+    "/api/v1/update-checkbox",
+    summary="Update Checkbox in Notion",
+    description="Update a checkbox property in a Notion page (e.g., Readability, Correctness, Ask AI)."
+)
+async def update_checkbox(request: UpdateCheckboxRequest):
+    """Update a checkbox property in the Notion page"""
+    try:
+        logger.info(f"Updating checkbox '{request.property_name}' for page {request.page_id}: {request.checked}")
+        
+        success = await notion_service.update_checkbox(
+            page_id=request.page_id,
+            property_name=request.property_name,
+            checked=request.checked
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Successfully updated {request.property_name} checkbox"
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to update {request.property_name} checkbox"
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in update_checkbox: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Error updating checkbox: {str(e)}"
         }
 
 if __name__ == '__main__':
