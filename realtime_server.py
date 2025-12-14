@@ -3,6 +3,11 @@ import json
 import os
 import uuid
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
@@ -23,6 +28,7 @@ from notion_service import notion_service
 from content_analyzer import content_analyzer
 from monitor import word_count_monitor
 from gemini_transcriber import get_gemini_transcriber
+from google_sheet_service import google_sheet_service
 
 # Audio storage configuration
 # Use /tmp for temporary audio storage (works on all systems, survives within container lifecycle)
@@ -148,6 +154,10 @@ class UpdateCheckboxRequest(BaseModel):
     property_name: str = Field(..., description="The checkbox property name (e.g., 'Readability', 'Correctness', 'Ask AI')")
     checked: bool = Field(True, description="Whether to check or uncheck the checkbox")
 
+# Google Sheet models
+class SaveToSheetRequest(BaseModel):
+    content: str = Field(..., description="The transcript content to save to Google Sheet")
+
 app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -240,6 +250,9 @@ async def health_check():
     if notion_service.enabled:
         word_count_status = "running" if word_count_monitor.is_running else "stopped"
     
+    # Check Google Sheet status
+    google_sheet_status = "enabled" if google_sheet_service.enabled else "disabled"
+    
     return {
         "status": "healthy",
         "openai_configured": OPENAI_API_KEY is not None,
@@ -247,7 +260,8 @@ async def health_check():
         "notion_status": notion_status,
         "content_analyzer_ready": content_analyzer.enabled,
         "auto_create_notes": NOTION_AUTO_CREATE,
-        "word_count_monitor": word_count_status
+        "word_count_monitor": word_count_status,
+        "google_sheet_status": google_sheet_status
     }
 
 
@@ -1013,6 +1027,30 @@ async def update_checkbox(request: UpdateCheckboxRequest):
         return {
             "success": False,
             "error": f"Error updating checkbox: {str(e)}"
+        }
+
+@app.post(
+    "/api/v1/save-to-sheet",
+    summary="Save Transcript to Google Sheet",
+    description="Save transcript content to Google Sheet with UTC+8 timestamp."
+)
+async def save_to_sheet(request: SaveToSheetRequest):
+    """Save transcript to Google Sheet"""
+    try:
+        if not request.content.strip():
+            return {"success": False, "error": "Content is empty"}
+        
+        logger.info(f"Saving to Google Sheet: {request.content[:50]}...")
+        
+        result = await google_sheet_service.insert_transcript(request.content)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in save_to_sheet: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Error saving to Google Sheet: {str(e)}"
         }
 
 if __name__ == '__main__':

@@ -17,6 +17,7 @@ let isConfirmingNotion = false;
 let isDualMode = false;
 let selectedTranscriptBox = "openai"; // 'openai' or 'gemini'
 let isDualChannelMode = true; // Whether dual channel mode is enabled via checkbox (default: true)
+let isSaveToSheetEnabled = true; // Whether save to sheet is enabled via checkbox (default: true)
 
 // Tab system state
 const tabResults = {
@@ -60,6 +61,7 @@ const geminiTranscript = document.getElementById("geminiTranscript");
 const leftBoxLabel = document.getElementById("leftBoxLabel");
 const rightBoxLabel = document.getElementById("rightBoxLabel");
 const dualChannelCheckbox = document.getElementById("dualChannelCheckbox");
+const saveToSheetCheckbox = document.getElementById("saveToSheetCheckbox");
 const copyOpenaiBtn = document.getElementById("copyOpenaiBtn");
 const copyGeminiBtn = document.getElementById("copyGeminiBtn");
 
@@ -285,6 +287,46 @@ async function autoAppendToNotion(tabName, content) {
   }
 }
 
+// Auto-save transcript to Google Sheet
+async function autoSaveToSheet() {
+  // Get content from the appropriate textbox
+  let content = "";
+  if (isDualMode) {
+    // In dual mode, use OpenAI (left) transcript
+    content = openaiTranscript.value.trim();
+  } else {
+    content = transcript.value.trim();
+  }
+
+  if (!content) {
+    console.log("No content to save to Sheet");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/v1/save-to-sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: content }),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showSuccess("Saved to Sheet");
+      console.log("Auto-saved to Google Sheet:", result.timestamp);
+    } else {
+      console.error("Failed to save to Sheet:", result.error);
+      showError(
+        "Failed to save to Sheet: " + (result.error || "Unknown error")
+      );
+    }
+  } catch (error) {
+    console.error("Error saving to Sheet:", error);
+    showError("Failed to save to Sheet: Network error");
+  }
+}
+
 // Append all pending tab results to Notion (called after Save to Notion)
 async function appendPendingTabResults() {
   const tabsToAppend = ["read", "corrected", "asked"];
@@ -469,6 +511,11 @@ function initializeWebSocket() {
         // Enable action buttons when transcription is complete
         setTranscriptionButtonsEnabled(true);
         console.log("Transcription complete, session:", data.session_id);
+
+        // Auto-save to Google Sheet if enabled
+        if (isSaveToSheetEnabled) {
+          autoSaveToSheet();
+        }
         break;
       case "error":
         showError(data.content);
@@ -491,6 +538,8 @@ async function startRecording() {
   try {
     // Check if dual channel mode is enabled
     isDualChannelMode = dualChannelCheckbox && dualChannelCheckbox.checked;
+    // Check if save to sheet is enabled
+    isSaveToSheetEnabled = saveToSheetCheckbox && saveToSheetCheckbox.checked;
 
     transcript.value = "";
     enhancedTranscript.value = "";
@@ -593,7 +642,7 @@ retranscribeButton.onclick = async () => {
 
   try {
     isRetranscribing = true;
-    retranscribeButton.textContent = "Transcribing...";
+    retranscribeButton.textContent = "Retrying...";
     retranscribeButton.disabled = true;
     startTimer();
 
@@ -633,7 +682,7 @@ retranscribeButton.onclick = async () => {
     showError("Network error, please check connection");
   } finally {
     isRetranscribing = false;
-    retranscribeButton.textContent = "Re-transcribe";
+    retranscribeButton.textContent = "Retry";
     retranscribeButton.disabled = false;
     stopTimer();
   }

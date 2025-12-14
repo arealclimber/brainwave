@@ -44,17 +44,21 @@
             <input type="checkbox" id="dualChannelCheckbox" checked />
             <span>Dual</span>
           </label>
+          <label class="dual-channel-toggle">
+            <input type="checkbox" id="saveToSheetCheckbox" checked />
+            <span>Sheet</span>
+          </label>
         </div>
         <div class="transcription-actions">
-          <button id="retranscribeButton" class="action-button" disabled>
-            Re-transcribe
-          </button>
           <button
             id="confirmNotionButton"
             class="action-button primary"
             disabled
           >
             Save to Notion
+          </button>
+          <button id="retranscribeButton" class="action-button" disabled>
+            Retry
           </button>
         </div>
       </div>
