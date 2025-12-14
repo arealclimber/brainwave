@@ -489,9 +489,35 @@ body.dark-theme .transcript-box.selected textarea {
 
   .record-section {
     width: 100%;
+    display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  /* Start button takes full width */
+  #recordButton {
+    flex: none;
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Dual, Sheet in record-section - hide them, we'll use a separate row */
+  .record-section .dual-channel-toggle {
+    display: none;
+  }
+
+  /* Todo row hidden on mobile too */
+  .todo-row {
+    display: none;
+  }
+
+  /* Mobile checkbox row - Dual, Sheet, Todo horizontal */
+  .mobile-checkbox-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    width: 100%;
   }
 
   .top-controls .transcription-actions {
@@ -499,14 +525,15 @@ body.dark-theme .transcript-box.selected textarea {
     justify-content: center;
   }
 
-  #recordButton {
-    flex: none;
-    width: auto;
-    min-width: 120px;
-  }
-
   .dual-channel-toggle {
     font-size: 0.85rem;
+  }
+}
+
+/* Hide mobile-only elements on desktop */
+@media (min-width: 481px) {
+  .mobile-checkbox-row {
+    display: none;
   }
 }
 

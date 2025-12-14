@@ -64,8 +64,31 @@ const rightBoxLabel = document.getElementById("rightBoxLabel");
 const dualChannelCheckbox = document.getElementById("dualChannelCheckbox");
 const saveToSheetCheckbox = document.getElementById("saveToSheetCheckbox");
 const todoCheckbox = document.getElementById("todoCheckbox");
+// Mobile checkbox elements
+const dualChannelCheckboxMobile = document.getElementById(
+  "dualChannelCheckboxMobile"
+);
+const saveToSheetCheckboxMobile = document.getElementById(
+  "saveToSheetCheckboxMobile"
+);
+const todoCheckboxMobile = document.getElementById("todoCheckboxMobile");
 const copyOpenaiBtn = document.getElementById("copyOpenaiBtn");
 const copyGeminiBtn = document.getElementById("copyGeminiBtn");
+
+// Sync desktop and mobile checkboxes
+function syncCheckboxes(desktopCb, mobileCb) {
+  if (desktopCb && mobileCb) {
+    desktopCb.addEventListener("change", () => {
+      mobileCb.checked = desktopCb.checked;
+    });
+    mobileCb.addEventListener("change", () => {
+      desktopCb.checked = mobileCb.checked;
+    });
+  }
+}
+syncCheckboxes(dualChannelCheckbox, dualChannelCheckboxMobile);
+syncCheckboxes(saveToSheetCheckbox, saveToSheetCheckboxMobile);
+syncCheckboxes(todoCheckbox, todoCheckboxMobile);
 
 // Tab DOM elements
 const tabRead = document.getElementById("tabRead");
