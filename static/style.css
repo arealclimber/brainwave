@@ -528,6 +528,7 @@ body.dark-theme .transcript-box.selected textarea {
     justify-content: center;
     gap: 20px;
     width: 100%;
+    margin: 20px 0;
   }
 
   .top-controls .transcription-actions {
