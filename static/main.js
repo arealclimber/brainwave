@@ -508,7 +508,11 @@ function initializeWebSocket() {
         if (isDualMode) {
           geminiTranscript.value = data.text;
           geminiTranscript.scrollTop = geminiTranscript.scrollHeight;
-          showSuccess("Gemini transcription complete");
+          if (data.was_converted) {
+            showSuccess("Gemini 轉寫完成（已轉換為繁體中文）");
+          } else {
+            showSuccess("Gemini transcription complete");
+          }
         }
         break;
       case "gemini_transcribing":

@@ -621,9 +621,16 @@ async def websocket_endpoint(websocket: WebSocket):
                                         
                                         if gemini_result.success:
                                             logger.info(f"Gemini transcription successful: {gemini_result.text[:100]}...")
+                                            
+                                            # Convert to Traditional Chinese if needed
+                                            gemini_text, gemini_was_converted = convert_if_needed(gemini_result.text)
+                                            if gemini_was_converted:
+                                                logger.info(f"Gemini transcript converted to Traditional Chinese")
+                                            
                                             await websocket.send_text(json.dumps({
                                                 "type": "gemini_transcription",
-                                                "text": gemini_result.text
+                                                "text": gemini_text,
+                                                "was_converted": gemini_was_converted
                                             }))
                                         else:
                                             logger.error(f"Gemini transcription failed: {gemini_result.error}")
@@ -913,9 +920,15 @@ async def retranscribe_audio(request: RetranscribeRequest):
         
         if result.success:
             logger.info(f"Re-transcription successful: {result.text[:100]}...")
+            
+            # Convert to Traditional Chinese if needed
+            converted_text, was_converted = convert_if_needed(result.text)
+            if was_converted:
+                logger.info(f"Re-transcription converted to Traditional Chinese")
+            
             return RetranscribeResponse(
                 success=True,
-                text=result.text
+                text=converted_text
             )
         else:
             logger.error(f"Re-transcription failed: {result.error}")
