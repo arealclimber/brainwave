@@ -39,7 +39,7 @@
         <div class="record-section">
           <button id="recordButton">Start</button>
           <label class="dual-channel-toggle">
-            <input type="checkbox" id="dualChannelCheckbox" checked />
+            <input type="checkbox" id="dualChannelCheckbox" />
             <span>Dual</span>
           </label>
           <label class="dual-channel-toggle">
@@ -49,14 +49,14 @@
         </div>
         <div class="todo-row">
           <label class="dual-channel-toggle">
-            <input type="checkbox" id="todoCheckbox" checked />
+            <input type="checkbox" id="todoCheckbox" />
             <span>Todo</span>
           </label>
         </div>
         <!-- Mobile only: Dual, Sheet, Todo in one row -->
         <div class="mobile-checkbox-row">
           <label class="dual-channel-toggle">
-            <input type="checkbox" id="dualChannelCheckboxMobile" checked />
+            <input type="checkbox" id="dualChannelCheckboxMobile" />
             <span>Dual</span>
           </label>
           <label class="dual-channel-toggle">
@@ -64,7 +64,7 @@
             <span>Sheet</span>
           </label>
           <label class="dual-channel-toggle">
-            <input type="checkbox" id="todoCheckboxMobile" checked />
+            <input type="checkbox" id="todoCheckboxMobile" />
             <span>Todo</span>
           </label>
         </div>
@@ -77,14 +77,16 @@
             Save to Notion
           </button>
           <button id="retranscribeButton" class="action-button" disabled>
-            Retry
+            Batch Transcribe
           </button>
         </div>
       </div>
       <!-- 單一 textbox 容器（初始顯示） -->
       <div id="singleTranscriptContainer" class="transcript-container">
+        <div class="copy-button-container">
+          <button id="copyButton" class="copy-button">Copy</button>
+        </div>
         <textarea id="transcript"></textarea>
-        <button id="copyButton" class="copy-button">Copy</button>
       </div>
       <!-- 雙 textbox 容器（初始隱藏，雙通道模式或 Re-transcribe 後顯示） -->
       <div

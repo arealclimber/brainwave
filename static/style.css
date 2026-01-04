@@ -5,6 +5,7 @@ body {
   line-height: 1.5;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
 }
 
 .container {
@@ -14,6 +15,7 @@ body {
   background: transparent;
   width: 95%;
   position: relative;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -30,6 +32,7 @@ h1 {
   align-items: center;
   gap: 15px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .record-section {
@@ -109,6 +112,12 @@ body.dark-theme .dual-channel-toggle:hover {
   margin-top: 30px;
 }
 
+.copy-button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .enhanced-transcript-container {
   position: relative;
   margin-top: 0;
@@ -128,9 +137,6 @@ textarea {
 }
 
 .copy-button {
-  position: absolute;
-  top: 15px;
-  right: 15px;
   padding: 8px 12px;
   background: #88c2ff;
   color: white;
@@ -138,7 +144,6 @@ textarea {
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.9rem;
-  z-index: 1;
 }
 
 .button-container {
@@ -190,6 +195,8 @@ textarea {
   .container {
     margin: 0 auto;
     padding: 0 15px 10px 15px;
+    width: 100%;
+    max-width: 100%;
   }
 
   h1 {
@@ -199,11 +206,14 @@ textarea {
 
   textarea {
     padding: 12px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .button-container {
     gap: 10px;
     padding: 10px;
+    flex-wrap: wrap;
   }
 
   .action-button {
@@ -211,6 +221,21 @@ textarea {
     max-width: 100px;
     height: 40px;
     font-size: 0.85rem;
+  }
+
+  .top-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .transcription-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .transcription-actions .action-button {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
 
@@ -563,6 +588,8 @@ body.dark-theme .transcript-box.selected textarea {
   gap: 8px;
   margin-bottom: 0;
   padding-left: 8px;
+  flex-wrap: wrap;
+  overflow-x: auto;
 }
 
 .result-tabs .copy-btn-small {
@@ -640,10 +667,18 @@ body.dark-theme .result-source {
 @media (max-width: 480px) {
   .result-tabs {
     gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .result-tab {
     padding: 6px 12px;
     font-size: 0.8rem;
+    flex-shrink: 0;
+  }
+
+  .result-source {
+    font-size: 0.65rem;
+    white-space: normal;
   }
 }

@@ -16,9 +16,9 @@ let isConfirmingNotion = false;
 // Dual textbox state
 let isDualMode = false;
 let selectedTranscriptBox = "openai"; // 'openai' or 'gemini'
-let isDualChannelMode = true; // Whether dual channel mode is enabled via checkbox (default: true)
+let isDualChannelMode = false; // Whether dual channel mode is enabled via checkbox (default: false)
 let isSaveToSheetEnabled = true; // Whether save to sheet is enabled via checkbox (default: true)
-let isTodoEnabled = true; // Whether todo category is enabled via checkbox (default: true)
+let isTodoEnabled = false; // Whether todo category is enabled via checkbox (default: false)
 
 // Tab system state
 const tabResults = {
@@ -702,7 +702,7 @@ retranscribeButton.onclick = async () => {
 
   try {
     isRetranscribing = true;
-    retranscribeButton.textContent = "Retrying...";
+    retranscribeButton.textContent = "Transcribing...";
     retranscribeButton.disabled = true;
     startTimer();
 
@@ -742,7 +742,7 @@ retranscribeButton.onclick = async () => {
     showError("Network error, please check connection");
   } finally {
     isRetranscribing = false;
-    retranscribeButton.textContent = "Retry";
+    retranscribeButton.textContent = "Batch Transcribe";
     retranscribeButton.disabled = false;
     stopTimer();
   }
