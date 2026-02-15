@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import uuid
 import numpy as np
 from dotenv import load_dotenv
@@ -28,6 +29,7 @@ from notion_service import notion_service
 from content_analyzer import content_analyzer
 from monitor import word_count_monitor
 from gemini_transcriber import get_gemini_transcriber
+from aibuilder_transcriber import get_aibuilder_transcriber
 from google_sheet_service import google_sheet_service
 from chinese_converter import convert_if_needed
 
@@ -178,7 +180,7 @@ else:
 
 # Initialize with a default model
 try:
-    llm_processor = get_llm_processor("gpt-4o")  # Default processor
+    llm_processor = get_llm_processor("gemini-3-flash-preview")  # Default processor
 except Exception as e:
     logger.warning(f"Failed to initialize LLM processor: {e}. Text processing will be disabled.")
     llm_processor = None
@@ -590,10 +592,15 @@ async def websocket_endpoint(websocket: WebSocket):
                                     try:
                                         audio_processor.save_audio_buffer(audio_storage_buffer, audio_file_path)
                                         logger.info(f"Saved audio file: {audio_file_path} ({len(audio_storage_buffer)} chunks)")
+                                        # Notify frontend that audio is saved — enable batch transcribe buttons
+                                        await websocket.send_text(json.dumps({
+                                            "type": "audio_saved",
+                                            "session_id": session_id
+                                        }))
                                     except Exception as e:
                                         logger.error(f"Failed to save audio file: {e}")
                                         audio_file_path = None
-                                
+
                                 # Add a small buffer to ensure network operations complete
                                 await asyncio.sleep(0.1)
                                 
@@ -729,7 +736,7 @@ async def create_notion_note_from_transcript(transcript: str):
     "/api/v1/readability",
     response_model=ReadabilityResponse,
     summary="Enhance Text Readability",
-    description="Improve the readability of the provided text using GPT-4."
+    description="Improve the readability of the provided text using gemini-3-flash-preview."
 )
 async def enhance_readability(request: ReadabilityRequest):
     prompt = PROMPTS.get('readability-enhance')
@@ -738,8 +745,7 @@ async def enhance_readability(request: ReadabilityRequest):
 
     try:
         async def text_generator():
-            # Use gpt-4o specifically for readability
-            async for part in llm_processor.process_text(request.text, prompt, model="gpt-4o"):
+            async for part in llm_processor.process_text(request.text, prompt, model="gemini-3-flash-preview"):
                 yield part
 
         return StreamingResponse(text_generator(), media_type="text/plain")
@@ -752,7 +758,7 @@ async def enhance_readability(request: ReadabilityRequest):
     "/api/v1/ask_ai",
     response_model=AskAIResponse,
     summary="Ask AI a Question",
-    description="Ask AI to provide insights using Gemini 2.5 Pro model."
+    description="Ask AI to provide insights using gemini-3-flash-preview model."
 )
 def ask_ai(request: AskAIRequest):
     prompt = PROMPTS.get('ask-ai')
@@ -760,9 +766,7 @@ def ask_ai(request: AskAIRequest):
         raise HTTPException(status_code=500, detail="Ask AI prompt not found.")
 
     try:
-        # Use Gemini 2.5 Pro specifically for ask_ai
-        gemini_processor = get_llm_processor("gemini-2.5-pro")
-        answer = gemini_processor.process_text_sync(request.text, prompt, model="gemini-2.5-pro")
+        answer = llm_processor.process_text_sync(request.text, prompt, model="gemini-3-flash-preview")
         return AskAIResponse(answer=answer)
     except Exception as e:
         logger.error(f"Error processing AI question: {e}", exc_info=True)
@@ -772,7 +776,7 @@ def ask_ai(request: AskAIRequest):
     "/api/v1/correctness",
     response_model=CorrectnessResponse,
     summary="Check Factual Correctness",
-    description="Analyze the text for factual accuracy using GPT-4o."
+    description="Analyze the text for factual accuracy using gemini-3-flash-preview."
 )
 async def check_correctness(request: CorrectnessRequest):
     prompt = PROMPTS.get('correctness-check')
@@ -781,8 +785,7 @@ async def check_correctness(request: CorrectnessRequest):
 
     try:
         async def text_generator():
-            # Specifically use gpt-4o for correctness checking
-            async for part in llm_processor.process_text(request.text, prompt, model="gpt-4o"):
+            async for part in llm_processor.process_text(request.text, prompt, model="gemini-3-flash-preview"):
                 yield part
 
         return StreamingResponse(text_generator(), media_type="text/plain")
@@ -959,17 +962,9 @@ async def confirm_notion(request: ConfirmNotionRequest):
         
         # Create Notion note
         result = await create_notion_note_from_transcript(request.transcript)
-        
-        # Clean up audio file if session_id provided
-        if request.session_id:
-            audio_file_path = get_audio_file_path(request.session_id)
-            if os.path.exists(audio_file_path):
-                try:
-                    os.remove(audio_file_path)
-                    logger.info(f"Cleaned up audio file: {audio_file_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up audio file: {e}")
-        
+
+        # Note: Audio file is NOT deleted here — user may re-save or download
+
         # Extract page_id from result
         page_id = result.get("page_id") if result else None
         
@@ -1085,6 +1080,87 @@ async def save_to_sheet(request: SaveToSheetRequest):
             "success": False,
             "error": f"Error saving to Google Sheet: {str(e)}"
         }
+
+## Audio download endpoint
+@app.get(
+    "/api/v1/download-audio/{session_id}",
+    summary="Download Audio File",
+    description="Download the recorded audio file for a given session."
+)
+async def download_audio(session_id: str):
+    """Download audio file as WAV attachment"""
+    # Validate session_id to prevent path traversal
+    if not re.match(r'^[\w]+$', session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+
+    audio_file_path = get_audio_file_path(session_id)
+    if not os.path.exists(audio_file_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    return FileResponse(
+        audio_file_path,
+        media_type="audio/wav",
+        filename=f"{session_id}.wav",
+        headers={"Content-Disposition": f"attachment; filename={session_id}.wav"}
+    )
+
+
+## AI Builder transcription endpoints
+class BuilderTranscribeRequest(BaseModel):
+    session_id: str = Field(..., description="The session ID of the recording to transcribe")
+
+@app.post(
+    "/api/v1/transcribe-builder",
+    summary="Transcribe with AI Builder",
+    description="Transcribe audio using AI Builder Space short endpoint."
+)
+async def transcribe_builder(request: BuilderTranscribeRequest):
+    """Transcribe audio using AI Builder Space (short audio)"""
+    try:
+        audio_file_path = get_audio_file_path(request.session_id)
+        if not os.path.exists(audio_file_path):
+            return {"success": False, "error": f"Audio file not found: {request.session_id}"}
+
+        transcriber = get_aibuilder_transcriber()
+        result = await transcriber.transcribe(audio_file_path)
+
+        if result.success:
+            converted_text, was_converted = convert_if_needed(result.text)
+            if was_converted:
+                logger.info("Builder transcript converted to Traditional Chinese")
+            return {"success": True, "text": converted_text}
+        else:
+            return {"success": False, "error": result.error}
+    except Exception as e:
+        logger.error(f"Error in transcribe_builder: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+@app.post(
+    "/api/v1/transcribe-builder-long",
+    summary="Transcribe with AI Builder (Long)",
+    description="Transcribe audio using AI Builder Space long endpoint with sentence-level timestamps."
+)
+async def transcribe_builder_long(request: BuilderTranscribeRequest):
+    """Transcribe audio using AI Builder Space (long audio)"""
+    try:
+        audio_file_path = get_audio_file_path(request.session_id)
+        if not os.path.exists(audio_file_path):
+            return {"success": False, "error": f"Audio file not found: {request.session_id}"}
+
+        transcriber = get_aibuilder_transcriber()
+        result = await transcriber.transcribe_long(audio_file_path)
+
+        if result.success:
+            converted_text, was_converted = convert_if_needed(result.text)
+            if was_converted:
+                logger.info("Builder long transcript converted to Traditional Chinese")
+            return {"success": True, "text": converted_text}
+        else:
+            return {"success": False, "error": result.error}
+    except Exception as e:
+        logger.error(f"Error in transcribe_builder_long: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=3005)

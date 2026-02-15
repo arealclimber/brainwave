@@ -8,12 +8,12 @@ logger = logging.getLogger(__name__)
 class ContentAnalyzer:
     """Analyzes STT content using Gemini for categorization and summarization"""
     
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-3-flash-preview"):
         self.model = model
         try:
-            self.llm_processor = get_llm_processor("gemini")
+            self.llm_processor = get_llm_processor("gemini-3-flash-preview")
             self.enabled = True
-            logger.info("Content analyzer initialized with Gemini")
+            logger.info("Content analyzer initialized with AIBuilder gemini-3-flash-preview")
         except Exception as e:
             logger.error(f"Failed to initialize content analyzer: {e}")
             self.llm_processor = None

@@ -85,9 +85,57 @@ class GPTProcessor(LLMProcessor):
         )
         return response.choices[0].message.content
 
+class AIBuilderChatProcessor(LLMProcessor):
+    """LLM processor using AI Builder Space OpenAI-compatible /v1/chat/completions"""
+
+    def __init__(self, default_model: str = 'gemini-3-flash-preview'):
+        self.api_token = os.getenv("AIBUILDER_API_TOKEN")
+        self.base_url = os.getenv("AIBUILDER_BASE_URL", "https://api.aibuilder.space")
+        if not self.api_token:
+            raise EnvironmentError("AIBUILDER_API_TOKEN is not set")
+        self.async_client = AsyncOpenAI(
+            api_key=self.api_token,
+            base_url=f"{self.base_url}/v1"
+        )
+        self.sync_client = OpenAI(
+            api_key=self.api_token,
+            base_url=f"{self.base_url}/v1"
+        )
+        self.default_model = default_model
+        logger.info(f"AIBuilderChatProcessor initialized, base_url: {self.base_url}, model: {default_model}")
+
+    async def process_text(self, text: str, prompt: str, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        all_prompt = f"{prompt}\n\n{text}"
+        model_name = model or self.default_model
+        logger.info(f"Using AIBuilder model: {model_name} for processing")
+        response = await self.async_client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "user", "content": all_prompt}
+            ],
+            stream=True
+        )
+        async for chunk in response:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+    def process_text_sync(self, text: str, prompt: str, model: Optional[str] = None) -> str:
+        all_prompt = f"{prompt}\n\n{text}"
+        model_name = model or self.default_model
+        logger.info(f"Using AIBuilder model: {model_name} for sync processing")
+        response = self.sync_client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "user", "content": all_prompt}
+            ]
+        )
+        return response.choices[0].message.content
+
 def get_llm_processor(model: str) -> LLMProcessor:
     model = model.lower()
-    if model.startswith(('gemini', 'gemini-')):
+    if model.startswith('gemini-3') or model.startswith('aibuilder'):
+        return AIBuilderChatProcessor(default_model=model)
+    elif model.startswith(('gemini', 'gemini-')):
         return GeminiProcessor(default_model=model)
     elif model.startswith(('gpt-', 'o1-')):
         return GPTProcessor()

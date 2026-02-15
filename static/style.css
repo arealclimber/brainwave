@@ -416,8 +416,8 @@ body.dark-theme .action-button:disabled {
   display: none !important;
 }
 
-/* Dual transcript container */
-.dual-transcript-container {
+/* Multi transcript container */
+.multi-transcript-container {
   display: flex;
   gap: 15px;
   margin-top: 30px;
@@ -510,11 +510,15 @@ body.dark-theme .transcript-box.selected textarea {
   box-shadow: 0 0 0 3px rgba(136, 194, 255, 0.2);
 }
 
-/* Mobile responsive for dual transcript */
+/* Mobile responsive for multi transcript */
 @media (max-width: 480px) {
-  .dual-transcript-container {
+  .multi-transcript-container {
     flex-direction: column;
     gap: 20px;
+  }
+
+  .transcript-box textarea {
+    min-height: 225px;
   }
 
   .top-controls {

@@ -28,20 +28,16 @@
     <div id="successMessage" class="message success"></div>
 
     <div class="container">
-      <!-- 頂部狀態列：Dark Mode、Timer、連線狀態 -->
+      <!-- Top status bar -->
       <div class="status-bar">
         <button id="themeToggle" class="theme-toggle">🌙</button>
         <div id="timer" class="timer">00:00</div>
         <div id="connectionStatus" class="connection-status"></div>
       </div>
-      <!-- 頂部控制列：Start + 雙通道 checkbox 在左，Re-transcribe + Save to Notion 在右 -->
+      <!-- Top controls -->
       <div class="top-controls">
         <div class="record-section">
           <button id="recordButton">Start</button>
-          <label class="dual-channel-toggle">
-            <input type="checkbox" id="dualChannelCheckbox" />
-            <span>Dual</span>
-          </label>
           <label class="dual-channel-toggle">
             <input type="checkbox" id="saveToSheetCheckbox" checked />
             <span>Sheet</span>
@@ -53,12 +49,8 @@
             <span>Todo</span>
           </label>
         </div>
-        <!-- Mobile only: Dual, Sheet, Todo in one row -->
+        <!-- Mobile only: Sheet, Todo in one row -->
         <div class="mobile-checkbox-row">
-          <label class="dual-channel-toggle">
-            <input type="checkbox" id="dualChannelCheckboxMobile" />
-            <span>Dual</span>
-          </label>
           <label class="dual-channel-toggle">
             <input type="checkbox" id="saveToSheetCheckboxMobile" checked />
             <span>Sheet</span>
@@ -76,33 +68,58 @@
           >
             Save to Notion
           </button>
-          <button id="retranscribeButton" class="action-button" disabled>
-            Batch Transcribe
+          <button id="builderButton" class="action-button" disabled>
+            Builder
+          </button>
+          <button id="builderLongButton" class="action-button" disabled>
+            Builder(hr)
+          </button>
+          <button id="geminiButton" class="action-button" disabled>
+            Gemini
+          </button>
+          <button id="saveAudioButton" class="action-button" disabled>
+            Save Audio
           </button>
         </div>
       </div>
-      <!-- 單一 textbox 容器（初始顯示） -->
+      <!-- Single textbox container (initial display) -->
       <div id="singleTranscriptContainer" class="transcript-container">
         <div class="copy-button-container">
           <button id="copyButton" class="copy-button">Copy</button>
         </div>
         <textarea id="transcript"></textarea>
       </div>
-      <!-- 雙 textbox 容器（初始隱藏，雙通道模式或 Re-transcribe 後顯示） -->
+      <!-- Multi textbox container (hidden initially, shown on batch transcribe) -->
       <div
-        id="dualTranscriptContainer"
-        class="dual-transcript-container hidden"
+        id="multiTranscriptContainer"
+        class="multi-transcript-container hidden"
       >
         <div class="transcript-box selected" id="openaiBox">
           <div class="box-header">
-            <label id="leftBoxLabel">OpenAI</label>
+            <label>Original</label>
             <button class="copy-btn-small" id="copyOpenaiBtn">Copy</button>
           </div>
           <textarea id="openaiTranscript"></textarea>
         </div>
-        <div class="transcript-box" id="geminiBox">
+        <div class="transcript-box hidden" id="builderBox">
           <div class="box-header">
-            <label id="rightBoxLabel">Gemini</label>
+            <label>Builder</label>
+            <button class="copy-btn-small" id="copyBuilderBtn">Copy</button>
+          </div>
+          <textarea id="builderTranscript"></textarea>
+        </div>
+        <div class="transcript-box hidden" id="builderLongBox">
+          <div class="box-header">
+            <label>Builder(hr)</label>
+            <button class="copy-btn-small" id="copyBuilderLongBtn">
+              Copy
+            </button>
+          </div>
+          <textarea id="builderLongTranscript"></textarea>
+        </div>
+        <div class="transcript-box hidden" id="geminiBox">
+          <div class="box-header">
+            <label>Gemini</label>
             <button class="copy-btn-small" id="copyGeminiBtn">Copy</button>
           </div>
           <textarea id="geminiTranscript"></textarea>
@@ -119,7 +136,7 @@
       </div>
       <!-- Enhanced section with tabs -->
       <div class="enhanced-section">
-        <!-- Tab 列 + source -->
+        <!-- Tab row + source -->
         <div class="result-tabs">
           <button class="result-tab" id="tabRead" disabled>Read</button>
           <button class="result-tab" id="tabCorrected" disabled>

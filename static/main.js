@@ -8,17 +8,20 @@ let wsConnected = false;
 let streamInitialized = false;
 let isAutoStarted = false;
 
-// Session tracking for re-transcription
+// Session tracking
 let currentSessionId = null;
-let isRetranscribing = false;
 let isConfirmingNotion = false;
 
-// Dual textbox state
+// Multi textbox state
 let isDualMode = false;
-let selectedTranscriptBox = "openai"; // 'openai' or 'gemini'
-let isDualChannelMode = false; // Whether dual channel mode is enabled via checkbox (default: false)
-let isSaveToSheetEnabled = true; // Whether save to sheet is enabled via checkbox (default: true)
-let isTodoEnabled = false; // Whether todo category is enabled via checkbox (default: false)
+let selectedTranscriptBox = "openai"; // 'openai' | 'builder' | 'builderLong' | 'gemini'
+let isSaveToSheetEnabled = true;
+let isTodoEnabled = false;
+
+// Batch transcribe flags (independent, can run concurrently)
+let isBuilderTranscribing = false;
+let isBuilderLongTranscribing = false;
+let isGeminiTranscribing = false;
 
 // Tab system state
 const tabResults = {
@@ -27,9 +30,8 @@ const tabResults = {
   asked: { content: "", source: "" },
 };
 let activeTab = null;
-let savedNotionPageId = null; // Remember saved Notion page ID for appending
+let savedNotionPageId = null;
 
-// Track which tab results have been appended to Notion
 const tabAppendedToNotion = {
   read: false,
   corrected: false,
@@ -45,34 +47,44 @@ const copyEnhancedButton = document.getElementById("copyEnhancedButton");
 const readabilityButton = document.getElementById("readabilityButton");
 const askAIButton = document.getElementById("askAIButton");
 const correctnessButton = document.getElementById("correctnessButton");
-const retranscribeButton = document.getElementById("retranscribeButton");
 const confirmNotionButton = document.getElementById("confirmNotionButton");
 
-// Dual textbox DOM elements
+// Batch transcribe & save audio buttons
+const builderButton = document.getElementById("builderButton");
+const builderLongButton = document.getElementById("builderLongButton");
+const geminiButton = document.getElementById("geminiButton");
+const saveAudioButton = document.getElementById("saveAudioButton");
+
+// Multi textbox DOM elements
 const singleTranscriptContainer = document.getElementById(
   "singleTranscriptContainer"
 );
-const dualTranscriptContainer = document.getElementById(
-  "dualTranscriptContainer"
+const multiTranscriptContainer = document.getElementById(
+  "multiTranscriptContainer"
 );
 const openaiBox = document.getElementById("openaiBox");
+const builderBox = document.getElementById("builderBox");
+const builderLongBox = document.getElementById("builderLongBox");
 const geminiBox = document.getElementById("geminiBox");
 const openaiTranscript = document.getElementById("openaiTranscript");
+const builderTranscript = document.getElementById("builderTranscript");
+const builderLongTranscript = document.getElementById(
+  "builderLongTranscript"
+);
 const geminiTranscript = document.getElementById("geminiTranscript");
-const leftBoxLabel = document.getElementById("leftBoxLabel");
-const rightBoxLabel = document.getElementById("rightBoxLabel");
-const dualChannelCheckbox = document.getElementById("dualChannelCheckbox");
+
+// Checkbox elements
 const saveToSheetCheckbox = document.getElementById("saveToSheetCheckbox");
 const todoCheckbox = document.getElementById("todoCheckbox");
-// Mobile checkbox elements
-const dualChannelCheckboxMobile = document.getElementById(
-  "dualChannelCheckboxMobile"
-);
 const saveToSheetCheckboxMobile = document.getElementById(
   "saveToSheetCheckboxMobile"
 );
 const todoCheckboxMobile = document.getElementById("todoCheckboxMobile");
+
+// Copy buttons
 const copyOpenaiBtn = document.getElementById("copyOpenaiBtn");
+const copyBuilderBtn = document.getElementById("copyBuilderBtn");
+const copyBuilderLongBtn = document.getElementById("copyBuilderLongBtn");
 const copyGeminiBtn = document.getElementById("copyGeminiBtn");
 
 // Sync desktop and mobile checkboxes
@@ -86,7 +98,6 @@ function syncCheckboxes(desktopCb, mobileCb) {
     });
   }
 }
-syncCheckboxes(dualChannelCheckbox, dualChannelCheckboxMobile);
 syncCheckboxes(saveToSheetCheckbox, saveToSheetCheckboxMobile);
 syncCheckboxes(todoCheckbox, todoCheckboxMobile);
 
@@ -114,8 +125,6 @@ async function copyToClipboard(text, button) {
     showCopiedFeedback(button, "Copied!");
   } catch (err) {
     console.error("Clipboard copy failed:", err);
-    // alert('Clipboard copy failed: ' + err.message);
-    // We don't show this message because it's not accurate. We could still write to the clipboard in this case.
   }
 }
 
@@ -145,58 +154,86 @@ function showSuccess(message) {
   setTimeout(() => successDiv.classList.remove("show"), 3000);
 }
 
-// Enable/disable transcription action buttons
+// Enable/disable batch transcribe and save audio buttons (NOT Notion button)
 function setTranscriptionButtonsEnabled(enabled) {
-  if (retranscribeButton) retranscribeButton.disabled = !enabled;
-  if (confirmNotionButton) confirmNotionButton.disabled = !enabled;
+  if (builderButton) builderButton.disabled = !enabled;
+  if (builderLongButton) builderLongButton.disabled = !enabled;
+  if (geminiButton) geminiButton.disabled = !enabled;
+  if (saveAudioButton) saveAudioButton.disabled = !enabled;
 }
 
-// Switch between single and dual textbox mode
+// Notion button state: enabled when any transcript textarea has content (debounce 200ms)
+let notionDebounceTimer = null;
+function updateNotionButtonState() {
+  clearTimeout(notionDebounceTimer);
+  notionDebounceTimer = setTimeout(() => {
+    const hasContent =
+      (transcript && transcript.value.trim()) ||
+      (openaiTranscript && openaiTranscript.value.trim()) ||
+      (builderTranscript && builderTranscript.value.trim()) ||
+      (builderLongTranscript && builderLongTranscript.value.trim()) ||
+      (geminiTranscript && geminiTranscript.value.trim());
+    if (confirmNotionButton && !isConfirmingNotion) {
+      confirmNotionButton.disabled = !hasContent;
+    }
+  }, 200);
+}
+
+// Switch between single and multi textbox mode
 function showSingleMode() {
   isDualMode = false;
   singleTranscriptContainer.classList.remove("hidden");
-  dualTranscriptContainer.classList.add("hidden");
+  multiTranscriptContainer.classList.add("hidden");
 }
 
-function showDualMode(leftText, rightText, isDualChannel = false) {
+function showMultiMode() {
   isDualMode = true;
-  openaiTranscript.value = leftText;
-  geminiTranscript.value = rightText;
   singleTranscriptContainer.classList.add("hidden");
-  dualTranscriptContainer.classList.remove("hidden");
-
-  // Update labels based on mode
-  if (isDualChannel) {
-    leftBoxLabel.textContent = "OpenAI";
-    rightBoxLabel.textContent = "Gemini";
-  } else {
-    leftBoxLabel.textContent = "Original";
-    rightBoxLabel.textContent = "Re-transcribed";
+  multiTranscriptContainer.classList.remove("hidden");
+  // Always show openai box
+  openaiBox.classList.remove("hidden");
+  // Copy original text from single textarea to openai box if needed
+  if (
+    openaiTranscript &&
+    !openaiTranscript.value.trim() &&
+    transcript.value.trim()
+  ) {
+    openaiTranscript.value = transcript.value;
   }
+}
 
-  // Default select openai/left box
-  selectTranscriptBox("openai");
+function showBox(boxId) {
+  const box = document.getElementById(boxId);
+  if (box) box.classList.remove("hidden");
 }
 
 // Select a transcript box
 function selectTranscriptBox(boxType) {
   selectedTranscriptBox = boxType;
-  openaiBox.classList.remove("selected");
-  geminiBox.classList.remove("selected");
-
-  if (boxType === "openai") {
-    openaiBox.classList.add("selected");
-  } else {
-    geminiBox.classList.add("selected");
-  }
+  [openaiBox, builderBox, builderLongBox, geminiBox].forEach((box) => {
+    if (box) box.classList.remove("selected");
+  });
+  const boxMap = {
+    openai: openaiBox,
+    builder: builderBox,
+    builderLong: builderLongBox,
+    gemini: geminiBox,
+  };
+  const box = boxMap[boxType];
+  if (box) box.classList.add("selected");
 }
 
 // Get selected transcript content
 function getSelectedTranscriptContent() {
   if (isDualMode) {
-    return selectedTranscriptBox === "openai"
-      ? openaiTranscript.value.trim()
-      : geminiTranscript.value.trim();
+    const textareaMap = {
+      openai: openaiTranscript,
+      builder: builderTranscript,
+      builderLong: builderLongTranscript,
+      gemini: geminiTranscript,
+    };
+    const ta = textareaMap[selectedTranscriptBox];
+    return ta ? ta.value.trim() : "";
   }
   return transcript.value.trim();
 }
@@ -204,11 +241,13 @@ function getSelectedTranscriptContent() {
 // Get current source label for API requests
 function getCurrentSourceLabel() {
   if (isDualMode) {
-    if (isDualChannelMode) {
-      return selectedTranscriptBox === "openai" ? "OpenAI" : "Gemini";
-    } else {
-      return selectedTranscriptBox === "openai" ? "Original" : "Re-transcribed";
-    }
+    const labelMap = {
+      openai: "Original",
+      builder: "Builder",
+      builderLong: "Builder(hr)",
+      gemini: "Gemini",
+    };
+    return labelMap[selectedTranscriptBox] || "Original";
   }
   return "Transcript";
 }
@@ -217,7 +256,6 @@ function getCurrentSourceLabel() {
 function switchToTab(tabName) {
   activeTab = tabName;
 
-  // Update tab button states
   tabRead.classList.remove("active");
   tabCorrected.classList.remove("active");
   tabAsked.classList.remove("active");
@@ -230,7 +268,6 @@ function switchToTab(tabName) {
     tabAsked.classList.add("active");
   }
 
-  // Update content and source
   const result = tabResults[tabName];
   if (result) {
     enhancedTranscript.value = result.content;
@@ -241,7 +278,6 @@ function switchToTab(tabName) {
 function saveTabResult(tabName, content, source) {
   tabResults[tabName] = { content, source };
 
-  // Enable the tab button
   if (tabName === "read") {
     tabRead.disabled = false;
   } else if (tabName === "corrected") {
@@ -250,10 +286,8 @@ function saveTabResult(tabName, content, source) {
     tabAsked.disabled = false;
   }
 
-  // Switch to this tab
   switchToTab(tabName);
 
-  // Auto-append to Notion if page exists
   if (savedNotionPageId) {
     autoAppendToNotion(tabName, content);
   }
@@ -270,7 +304,6 @@ async function autoAppendToNotion(tabName, content) {
   const sectionTitle = sectionTitleMap[tabName] || tabName;
 
   try {
-    // Append content and update checkbox in parallel
     const [appendResponse, checkboxResponse] = await Promise.all([
       fetch("/api/v1/append-notion", {
         method: "POST",
@@ -297,7 +330,6 @@ async function autoAppendToNotion(tabName, content) {
 
     if (appendResult.success && checkboxResult.success) {
       showSuccess(`${sectionTitle} appended to Notion`);
-      // Mark as appended
       tabAppendedToNotion[tabName] = true;
     } else {
       if (!appendResult.success) {
@@ -314,10 +346,8 @@ async function autoAppendToNotion(tabName, content) {
 
 // Auto-save transcript to Google Sheet
 async function autoSaveToSheet() {
-  // Get content from the appropriate textbox
   let content = "";
   if (isDualMode) {
-    // In dual mode, use OpenAI (left) transcript
     content = openaiTranscript.value.trim();
   } else {
     content = transcript.value.trim();
@@ -330,7 +360,6 @@ async function autoSaveToSheet() {
 
   try {
     const requestBody = { content: content };
-    // Read checkbox state directly to ensure we get the current value
     const todoChecked = todoCheckbox && todoCheckbox.checked;
     if (todoChecked) {
       requestBody.category = "todo";
@@ -366,7 +395,6 @@ async function appendPendingTabResults() {
 
   for (const tabName of tabsToAppend) {
     const result = tabResults[tabName];
-    // If has content and not yet appended
     if (result.content && !tabAppendedToNotion[tabName]) {
       await autoAppendToNotion(tabName, result.content);
     }
@@ -374,18 +402,15 @@ async function appendPendingTabResults() {
 }
 
 function resetTabSystem() {
-  // Reset all tab results
   tabResults.read = { content: "", source: "" };
   tabResults.corrected = { content: "", source: "" };
   tabResults.asked = { content: "", source: "" };
   activeTab = null;
 
-  // Reset append tracking
   tabAppendedToNotion.read = false;
   tabAppendedToNotion.corrected = false;
   tabAppendedToNotion.asked = false;
 
-  // Disable all tabs
   tabRead.disabled = true;
   tabCorrected.disabled = true;
   tabAsked.disabled = true;
@@ -393,7 +418,6 @@ function resetTabSystem() {
   tabCorrected.classList.remove("active");
   tabAsked.classList.remove("active");
 
-  // Clear content
   enhancedTranscript.value = "";
   resultSource.textContent = "";
 }
@@ -464,20 +488,20 @@ function updateConnectionStatus(status) {
   statusDot.classList.remove("connected", "connecting", "idle");
 
   switch (status) {
-    case "connected": // OpenAI is connected and ready
+    case "connected":
       statusDot.classList.add("connected");
-      statusDot.style.backgroundColor = "#34C759"; // Green
+      statusDot.style.backgroundColor = "#34C759";
       break;
-    case "connecting": // Establishing OpenAI connection
+    case "connecting":
       statusDot.classList.add("connecting");
-      statusDot.style.backgroundColor = "#FF9500"; // Orange
+      statusDot.style.backgroundColor = "#FF9500";
       break;
-    case "idle": // Client connected, OpenAI not connected
+    case "idle":
       statusDot.classList.add("idle");
-      statusDot.style.backgroundColor = "#007AFF"; // Blue
+      statusDot.style.backgroundColor = "#007AFF";
       break;
-    default: // Disconnected
-      statusDot.style.backgroundColor = "#FF3B30"; // Red
+    default:
+      statusDot.style.backgroundColor = "#FF3B30";
   }
 }
 
@@ -497,72 +521,40 @@ function initializeWebSocket() {
       case "session_created":
         currentSessionId = data.session_id;
         console.log("New recording session:", currentSessionId);
-        // Buttons will be enabled when transcription is complete
         break;
       case "status":
         updateConnectionStatus(data.status);
-        if (data.status === "idle" && !isDualChannelMode) {
+        if (data.status === "idle") {
           copyToClipboard(transcript.value, copyButton);
         }
         break;
       case "text":
-        if (isDualChannelMode && isDualMode) {
-          // Dual channel mode: OpenAI results go to left textbox
-          if (data.isNewResponse) {
-            openaiTranscript.value = data.content;
-            stopTimer();
-          } else {
-            openaiTranscript.value += data.content;
-          }
-          openaiTranscript.scrollTop = openaiTranscript.scrollHeight;
+        // Always single mode during recording — text goes to main transcript
+        if (data.isNewResponse) {
+          transcript.value = data.content;
+          stopTimer();
         } else {
-          // Single channel mode: results go to main transcript
-          if (data.isNewResponse) {
-            transcript.value = data.content;
-            stopTimer();
-          } else {
-            transcript.value += data.content;
-          }
-          transcript.scrollTop = transcript.scrollHeight;
+          transcript.value += data.content;
         }
+        transcript.scrollTop = transcript.scrollHeight;
+        updateNotionButtonState();
         break;
-      case "gemini_transcription":
-        // Gemini results go to right textbox (dual channel mode)
-        if (isDualMode) {
-          geminiTranscript.value = data.text;
-          geminiTranscript.scrollTop = geminiTranscript.scrollHeight;
-          if (data.was_converted) {
-            showSuccess("Gemini 轉寫完成（已轉換為繁體中文）");
-          } else {
-            showSuccess("Gemini transcription complete");
-          }
-        }
-        break;
-      case "gemini_transcribing":
-        // Show loading state for Gemini
-        if (isDualMode) {
-          geminiTranscript.value = "Transcribing with Gemini...";
-        }
+      case "audio_saved":
+        // Audio file saved — enable batch transcribe & save audio buttons
+        setTranscriptionButtonsEnabled(true);
+        console.log("Audio saved, session:", data.session_id);
         break;
       case "transcript_converted":
-        // Handle Traditional Chinese conversion
         console.log("Transcript converted to Traditional Chinese");
-        if (isDualChannelMode && isDualMode) {
-          // In dual mode, update OpenAI (left) textbox
-          openaiTranscript.value = data.content;
-        } else {
-          // In single mode, update main transcript
-          transcript.value = data.content;
-        }
+        transcript.value = data.content;
         showSuccess("已轉換為繁體中文");
+        updateNotionButtonState();
         break;
       case "transcription_complete":
-        // Enable action buttons when transcription is complete
+        // Also enable buttons as fallback (audio_saved fires earlier)
         setTranscriptionButtonsEnabled(true);
         console.log("Transcription complete, session:", data.session_id);
 
-        // Re-check checkbox states at the end of recording
-        // This allows users to change their mind during recording
         isSaveToSheetEnabled =
           (saveToSheetCheckbox && saveToSheetCheckbox.checked) ||
           (saveToSheetCheckboxMobile && saveToSheetCheckboxMobile.checked);
@@ -570,10 +562,10 @@ function initializeWebSocket() {
           (todoCheckbox && todoCheckbox.checked) ||
           (todoCheckboxMobile && todoCheckboxMobile.checked);
 
-        // Auto-save to Google Sheet if enabled
         if (isSaveToSheetEnabled) {
           autoSaveToSheet();
         }
+        updateNotionButtonState();
         break;
       case "error":
         showError(data.content);
@@ -594,31 +586,28 @@ async function startRecording() {
   if (isRecording) return;
 
   try {
-    // Check if dual channel mode is enabled
-    isDualChannelMode = dualChannelCheckbox && dualChannelCheckbox.checked;
-    // Check if save to sheet is enabled
     isSaveToSheetEnabled = saveToSheetCheckbox && saveToSheetCheckbox.checked;
-    // Check if todo category is enabled
     isTodoEnabled = todoCheckbox && todoCheckbox.checked;
 
     transcript.value = "";
     enhancedTranscript.value = "";
-
-    // Reset tab system but keep savedNotionPageId for appending
     resetTabSystem();
-    // Note: savedNotionPageId is preserved to allow appending to the same page
 
-    // Set up UI based on mode
-    if (isDualChannelMode) {
-      // Dual channel mode: show dual textbox immediately
-      showDualMode("", "", true);
-    } else {
-      // Single channel mode: show single textbox
-      showSingleMode();
-    }
+    // Always single mode during recording
+    showSingleMode();
 
-    // Disable transcription action buttons for new recording
+    // Hide all batch result boxes and clear their content
+    if (builderBox) builderBox.classList.add("hidden");
+    if (builderLongBox) builderLongBox.classList.add("hidden");
+    if (geminiBox) geminiBox.classList.add("hidden");
+    if (builderTranscript) builderTranscript.value = "";
+    if (builderLongTranscript) builderLongTranscript.value = "";
+    if (geminiTranscript) geminiTranscript.value = "";
+    if (openaiTranscript) openaiTranscript.value = "";
+
+    // Disable all action buttons for new recording
     setTranscriptionButtonsEnabled(false);
+    if (confirmNotionButton) confirmNotionButton.disabled = true;
 
     if (!streamInitialized) {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -636,11 +625,9 @@ async function startRecording() {
     if (!audioContext) await initAudio(stream);
 
     isRecording = true;
-    // Send start_recording with dual_channel flag
     await ws.send(
       JSON.stringify({
         type: "start_recording",
-        dual_channel: isDualChannelMode,
       })
     );
 
@@ -677,82 +664,181 @@ copyButton.onclick = () => copyToClipboard(transcript.value, copyButton);
 copyEnhancedButton.onclick = () =>
   copyToClipboard(enhancedTranscript.value, copyEnhancedButton);
 
-// Copy buttons for dual textbox
+// Copy buttons for multi textbox
 if (copyOpenaiBtn) {
   copyOpenaiBtn.onclick = () =>
     copyToClipboard(openaiTranscript.value, copyOpenaiBtn);
+}
+if (copyBuilderBtn) {
+  copyBuilderBtn.onclick = () =>
+    copyToClipboard(builderTranscript.value, copyBuilderBtn);
+}
+if (copyBuilderLongBtn) {
+  copyBuilderLongBtn.onclick = () =>
+    copyToClipboard(builderLongTranscript.value, copyBuilderLongBtn);
 }
 if (copyGeminiBtn) {
   copyGeminiBtn.onclick = () =>
     copyToClipboard(geminiTranscript.value, copyGeminiBtn);
 }
 
-// Re-transcription button handler
-retranscribeButton.onclick = async () => {
-  if (isRetranscribing || !currentSessionId) return;
+// Builder transcribe button handler
+if (builderButton) {
+  builderButton.onclick = async () => {
+    if (isBuilderTranscribing || !currentSessionId) return;
 
-  // Get original text before re-transcription
-  const originalText = isDualMode
-    ? openaiTranscript.value.trim()
-    : transcript.value.trim();
-  if (!originalText) {
-    showError("No content to re-transcribe");
-    return;
-  }
+    try {
+      isBuilderTranscribing = true;
+      builderButton.textContent = "Transcribing...";
+      builderButton.disabled = true;
+      startTimer();
 
-  try {
-    isRetranscribing = true;
-    retranscribeButton.textContent = "Transcribing...";
-    retranscribeButton.disabled = true;
-    startTimer();
+      showMultiMode();
+      showBox("builderBox");
+      builderTranscript.value = "Transcribing with Builder...";
 
-    // If already in dual mode, clear right textbox and show loading
-    if (isDualMode) {
-      geminiTranscript.value = "Re-transcribing...";
-    }
+      const response = await fetch("/api/v1/transcribe-builder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
 
-    const response = await fetch("/api/v1/retranscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: currentSessionId }),
-    });
+      const result = await response.json();
 
-    const result = await response.json();
-
-    if (!result.success) {
-      showError(result.error || "Re-transcription failed, please try again");
-      if (isDualMode) {
-        geminiTranscript.value = "";
+      if (result.success) {
+        builderTranscript.value = result.text;
+        selectTranscriptBox("builder");
+        showSuccess("Builder transcription complete");
+        updateNotionButtonState();
+      } else {
+        builderTranscript.value = "";
+        showError(result.error || "Builder transcription failed");
       }
+    } catch (error) {
+      console.error("Error:", error);
+      builderTranscript.value = "";
+      showError("Network error, please check connection");
+    } finally {
+      isBuilderTranscribing = false;
+      builderButton.textContent = "Builder";
+      builderButton.disabled = false;
+      stopTimer();
+    }
+  };
+}
+
+// Builder(hr) long transcribe button handler
+if (builderLongButton) {
+  builderLongButton.onclick = async () => {
+    if (isBuilderLongTranscribing || !currentSessionId) return;
+
+    try {
+      isBuilderLongTranscribing = true;
+      builderLongButton.textContent = "Transcribing...";
+      builderLongButton.disabled = true;
+      startTimer();
+
+      showMultiMode();
+      showBox("builderLongBox");
+      builderLongTranscript.value = "Transcribing with Builder(hr)...";
+
+      const response = await fetch("/api/v1/transcribe-builder-long", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        builderLongTranscript.value = result.text;
+        selectTranscriptBox("builderLong");
+        showSuccess("Builder(hr) transcription complete");
+        updateNotionButtonState();
+      } else {
+        builderLongTranscript.value = "";
+        showError(result.error || "Builder(hr) transcription failed");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      builderLongTranscript.value = "";
+      showError("Network error, please check connection");
+    } finally {
+      isBuilderLongTranscribing = false;
+      builderLongButton.textContent = "Builder(hr)";
+      builderLongButton.disabled = false;
+      stopTimer();
+    }
+  };
+}
+
+// Gemini transcribe button handler
+if (geminiButton) {
+  geminiButton.onclick = async () => {
+    if (isGeminiTranscribing || !currentSessionId) return;
+
+    try {
+      isGeminiTranscribing = true;
+      geminiButton.textContent = "Transcribing...";
+      geminiButton.disabled = true;
+      startTimer();
+
+      showMultiMode();
+      showBox("geminiBox");
+      geminiTranscript.value = "Transcribing with Gemini...";
+
+      const response = await fetch("/api/v1/retranscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSessionId }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        geminiTranscript.value = result.text;
+        selectTranscriptBox("gemini");
+        showSuccess("Gemini transcription complete");
+        updateNotionButtonState();
+      } else {
+        geminiTranscript.value = "";
+        showError(result.error || "Gemini transcription failed");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      geminiTranscript.value = "";
+      showError("Network error, please check connection");
+    } finally {
+      isGeminiTranscribing = false;
+      geminiButton.textContent = "Gemini";
+      geminiButton.disabled = false;
+      stopTimer();
+    }
+  };
+}
+
+// Save Audio button handler (browser download)
+if (saveAudioButton) {
+  saveAudioButton.onclick = () => {
+    if (!currentSessionId) {
+      showError("No audio to save");
       return;
     }
 
-    if (isDualMode) {
-      // Already in dual mode: just update the right textbox
-      geminiTranscript.value = result.text;
-      selectTranscriptBox("gemini");
-    } else {
-      // Switch to dual mode with original and new transcription
-      showDualMode(originalText, result.text, false);
-    }
-    showSuccess("Re-transcription complete");
-    copyToClipboard(result.text, null);
-  } catch (error) {
-    console.error("Error:", error);
-    showError("Network error, please check connection");
-  } finally {
-    isRetranscribing = false;
-    retranscribeButton.textContent = "Batch Transcribe";
-    retranscribeButton.disabled = false;
-    stopTimer();
-  }
-};
+    const a = document.createElement("a");
+    a.href = `/api/v1/download-audio/${currentSessionId}`;
+    a.download = `${currentSessionId}.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showSuccess("Audio download started");
+  };
+}
 
-// Confirm Notion button handler
+// Confirm Notion button handler (supports re-save)
 confirmNotionButton.onclick = async () => {
   if (isConfirmingNotion) return;
 
-  // Get content from selected textbox
   const inputText = getSelectedTranscriptContent();
   if (!inputText) {
     showError("No content to save");
@@ -778,29 +864,34 @@ confirmNotionButton.onclick = async () => {
 
     if (!result.success) {
       showError(result.error || "Failed to save to Notion");
+      isConfirmingNotion = false;
+      confirmNotionButton.textContent = "Save to Notion";
+      updateNotionButtonState();
       return;
     }
 
-    // Save the page_id for appending later
     if (result.page_id) {
       savedNotionPageId = result.page_id;
       console.log("Saved Notion page ID:", savedNotionPageId);
-
-      // Append any pending tab results that were created before Save to Notion
       await appendPendingTabResults();
     }
 
-    showSuccess("Successfully saved to Notion!");
-    // Disable Save to Notion button after successful save
-    confirmNotionButton.disabled = true;
-    // Clear session ID since audio file is cleaned up
-    currentSessionId = null;
+    showSuccess("Saved ✓");
+    confirmNotionButton.textContent = "Saved ✓";
+    // Re-enable after 2 seconds (input listener determines final state)
+    setTimeout(() => {
+      confirmNotionButton.textContent = "Save to Notion";
+      isConfirmingNotion = false;
+      updateNotionButtonState();
+    }, 2000);
+    // Do NOT clear currentSessionId — allow re-save and audio download
   } catch (error) {
     console.error("Error:", error);
     showError("Network error, please check connection");
-  } finally {
     isConfirmingNotion = false;
     confirmNotionButton.textContent = "Save to Notion";
+    updateNotionButtonState();
+  } finally {
     stopTimer();
   }
 };
@@ -825,21 +916,41 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeTheme();
   if (autoStart) initializeAudioStream();
 
-  // Add click listeners for dual textbox selection
-  if (openaiBox) {
-    openaiBox.addEventListener("click", () => selectTranscriptBox("openai"));
-    openaiTranscript.addEventListener("focus", () =>
-      selectTranscriptBox("openai")
-    );
-  }
-  if (geminiBox) {
-    geminiBox.addEventListener("click", () => selectTranscriptBox("gemini"));
-    geminiTranscript.addEventListener("focus", () =>
-      selectTranscriptBox("gemini")
-    );
-  }
+  // Click listeners for multi textbox selection
+  const boxConfigs = [
+    { box: openaiBox, textarea: openaiTranscript, type: "openai" },
+    { box: builderBox, textarea: builderTranscript, type: "builder" },
+    {
+      box: builderLongBox,
+      textarea: builderLongTranscript,
+      type: "builderLong",
+    },
+    { box: geminiBox, textarea: geminiTranscript, type: "gemini" },
+  ];
+  boxConfigs.forEach(({ box, textarea, type }) => {
+    if (box) {
+      box.addEventListener("click", () => selectTranscriptBox(type));
+    }
+    if (textarea) {
+      textarea.addEventListener("focus", () => selectTranscriptBox(type));
+    }
+  });
 
-  // Add click listeners for result tabs
+  // Input listeners for Notion button state (any textarea with content → enable)
+  const allTranscriptTextareas = [
+    transcript,
+    openaiTranscript,
+    builderTranscript,
+    builderLongTranscript,
+    geminiTranscript,
+  ];
+  allTranscriptTextareas.forEach((ta) => {
+    if (ta) {
+      ta.addEventListener("input", updateNotionButtonState);
+    }
+  });
+
+  // Tab click listeners
   if (tabRead) {
     tabRead.addEventListener("click", () => switchToTab("read"));
   }
@@ -883,7 +994,6 @@ readabilityButton.onclick = async () => {
       enhancedTranscript.scrollTop = enhancedTranscript.scrollHeight;
     }
 
-    // Save to tab system
     saveTabResult("read", fullText, sourceLabel);
 
     if (!isMobileDevice()) copyToClipboard(fullText, copyEnhancedButton);
@@ -917,7 +1027,6 @@ askAIButton.onclick = async () => {
     const result = await response.json();
     enhancedTranscript.value = result.answer;
 
-    // Save to tab system
     saveTabResult("asked", result.answer, sourceLabel);
 
     if (!isMobileDevice()) copyToClipboard(result.answer, copyEnhancedButton);
@@ -960,7 +1069,6 @@ correctnessButton.onclick = async () => {
       enhancedTranscript.scrollTop = enhancedTranscript.scrollHeight;
     }
 
-    // Save to tab system
     saveTabResult("corrected", fullText, sourceLabel);
 
     stopTimer();
@@ -977,14 +1085,10 @@ function toggleTheme() {
   const themeToggle = document.getElementById("themeToggle");
   const isDarkTheme = body.classList.toggle("dark-theme");
 
-  // Update button text
   themeToggle.textContent = isDarkTheme ? "☀️" : "🌙";
-
-  // Save preference to localStorage
   localStorage.setItem("darkTheme", isDarkTheme);
 }
 
-// Initialize theme from saved preference
 function initializeTheme() {
   const darkTheme = localStorage.getItem("darkTheme") === "true";
   const themeToggle = document.getElementById("themeToggle");
@@ -995,5 +1099,4 @@ function initializeTheme() {
   }
 }
 
-// Add to your existing event listeners
 document.getElementById("themeToggle").onclick = toggleTheme;
