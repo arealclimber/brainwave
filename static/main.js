@@ -182,20 +182,21 @@ function updateNotionButtonState() {
 // Switch between single and multi textbox mode
 function showSingleMode() {
   isDualMode = false;
-  singleTranscriptContainer.classList.remove("hidden");
-  multiTranscriptContainer.classList.add("hidden");
+  if (singleTranscriptContainer) singleTranscriptContainer.classList.remove("hidden");
+  if (multiTranscriptContainer) multiTranscriptContainer.classList.add("hidden");
 }
 
 function showMultiMode() {
   isDualMode = true;
-  singleTranscriptContainer.classList.add("hidden");
-  multiTranscriptContainer.classList.remove("hidden");
+  if (singleTranscriptContainer) singleTranscriptContainer.classList.add("hidden");
+  if (multiTranscriptContainer) multiTranscriptContainer.classList.remove("hidden");
   // Always show openai box
-  openaiBox.classList.remove("hidden");
+  if (openaiBox) openaiBox.classList.remove("hidden");
   // Copy original text from single textarea to openai box if needed
   if (
     openaiTranscript &&
     !openaiTranscript.value.trim() &&
+    transcript &&
     transcript.value.trim()
   ) {
     openaiTranscript.value = transcript.value;
@@ -256,15 +257,15 @@ function getCurrentSourceLabel() {
 function switchToTab(tabName) {
   activeTab = tabName;
 
-  tabRead.classList.remove("active");
-  tabCorrected.classList.remove("active");
-  tabAsked.classList.remove("active");
+  if (tabRead) tabRead.classList.remove("active");
+  if (tabCorrected) tabCorrected.classList.remove("active");
+  if (tabAsked) tabAsked.classList.remove("active");
 
-  if (tabName === "read") {
+  if (tabName === "read" && tabRead) {
     tabRead.classList.add("active");
-  } else if (tabName === "corrected") {
+  } else if (tabName === "corrected" && tabCorrected) {
     tabCorrected.classList.add("active");
-  } else if (tabName === "asked") {
+  } else if (tabName === "asked" && tabAsked) {
     tabAsked.classList.add("active");
   }
 
@@ -278,11 +279,11 @@ function switchToTab(tabName) {
 function saveTabResult(tabName, content, source) {
   tabResults[tabName] = { content, source };
 
-  if (tabName === "read") {
+  if (tabName === "read" && tabRead) {
     tabRead.disabled = false;
-  } else if (tabName === "corrected") {
+  } else if (tabName === "corrected" && tabCorrected) {
     tabCorrected.disabled = false;
-  } else if (tabName === "asked") {
+  } else if (tabName === "asked" && tabAsked) {
     tabAsked.disabled = false;
   }
 
@@ -411,15 +412,12 @@ function resetTabSystem() {
   tabAppendedToNotion.corrected = false;
   tabAppendedToNotion.asked = false;
 
-  tabRead.disabled = true;
-  tabCorrected.disabled = true;
-  tabAsked.disabled = true;
-  tabRead.classList.remove("active");
-  tabCorrected.classList.remove("active");
-  tabAsked.classList.remove("active");
+  if (tabRead) { tabRead.disabled = true; tabRead.classList.remove("active"); }
+  if (tabCorrected) { tabCorrected.disabled = true; tabCorrected.classList.remove("active"); }
+  if (tabAsked) { tabAsked.disabled = true; tabAsked.classList.remove("active"); }
 
-  enhancedTranscript.value = "";
-  resultSource.textContent = "";
+  if (enhancedTranscript) enhancedTranscript.value = "";
+  if (resultSource) resultSource.textContent = "";
 }
 
 // Timer functions
@@ -485,6 +483,7 @@ async function initAudio(stream) {
 // WebSocket handling
 function updateConnectionStatus(status) {
   const statusDot = document.getElementById("connectionStatus");
+  if (!statusDot) return;
   statusDot.classList.remove("connected", "connecting", "idle");
 
   switch (status) {
@@ -605,9 +604,9 @@ async function startRecording() {
     if (geminiTranscript) geminiTranscript.value = "";
     if (openaiTranscript) openaiTranscript.value = "";
 
-    // Disable all action buttons for new recording
+    // Disable batch transcribe buttons for new recording (not Notion — it's always input-driven)
     setTranscriptionButtonsEnabled(false);
-    if (confirmNotionButton) confirmNotionButton.disabled = true;
+    updateNotionButtonState();
 
     if (!streamInitialized) {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -632,8 +631,10 @@ async function startRecording() {
     );
 
     startTimer();
-    recordButton.textContent = "Stop";
-    recordButton.classList.add("recording");
+    if (recordButton) {
+      recordButton.textContent = "Stop";
+      recordButton.classList.add("recording");
+    }
   } catch (error) {
     console.error("Error starting recording:", error);
     showError("Cannot access microphone: " + error.message);
@@ -644,7 +645,7 @@ async function stopRecording() {
   if (!isRecording) return;
 
   isRecording = false;
-  startTimer();
+  stopTimer();
 
   if (audioBuffer.length > 0 && ws.readyState === WebSocket.OPEN) {
     ws.send(audioBuffer.buffer);
@@ -654,14 +655,16 @@ async function stopRecording() {
   await new Promise((resolve) => setTimeout(resolve, 500));
   await ws.send(JSON.stringify({ type: "stop_recording" }));
 
-  recordButton.textContent = "Start";
-  recordButton.classList.remove("recording");
+  if (recordButton) {
+    recordButton.textContent = "Start";
+    recordButton.classList.remove("recording");
+  }
 }
 
 // Event listeners
-recordButton.onclick = () => (isRecording ? stopRecording() : startRecording());
-copyButton.onclick = () => copyToClipboard(transcript.value, copyButton);
-copyEnhancedButton.onclick = () =>
+if (recordButton) recordButton.onclick = () => (isRecording ? stopRecording() : startRecording());
+if (copyButton) copyButton.onclick = () => copyToClipboard(transcript.value, copyButton);
+if (copyEnhancedButton) copyEnhancedButton.onclick = () =>
   copyToClipboard(enhancedTranscript.value, copyEnhancedButton);
 
 // Copy buttons for multi textbox
@@ -836,7 +839,7 @@ if (saveAudioButton) {
 }
 
 // Confirm Notion button handler (supports re-save)
-confirmNotionButton.onclick = async () => {
+if (confirmNotionButton) confirmNotionButton.onclick = async () => {
   if (isConfirmingNotion) return;
 
   const inputText = getSelectedTranscriptContent();
@@ -914,7 +917,7 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("DOMContentLoaded", () => {
   initializeWebSocket();
   initializeTheme();
-  if (autoStart) initializeAudioStream();
+  // autoStart handled by ws.onopen → startRecording()
 
   // Click listeners for multi textbox selection
   const boxConfigs = [
@@ -960,10 +963,13 @@ document.addEventListener("DOMContentLoaded", () => {
   if (tabAsked) {
     tabAsked.addEventListener("click", () => switchToTab("asked"));
   }
+
+  // Initial Notion button state check (enable if textbox already has content)
+  updateNotionButtonState();
 });
 
 // Readability and AI handlers
-readabilityButton.onclick = async () => {
+if (readabilityButton) readabilityButton.onclick = async () => {
   startTimer();
   const inputText = getSelectedTranscriptContent();
   const sourceLabel = getCurrentSourceLabel();
@@ -1005,7 +1011,7 @@ readabilityButton.onclick = async () => {
   }
 };
 
-askAIButton.onclick = async () => {
+if (askAIButton) askAIButton.onclick = async () => {
   startTimer();
   const inputText = getSelectedTranscriptContent();
   const sourceLabel = getCurrentSourceLabel();
@@ -1038,7 +1044,7 @@ askAIButton.onclick = async () => {
   }
 };
 
-correctnessButton.onclick = async () => {
+if (correctnessButton) correctnessButton.onclick = async () => {
   startTimer();
   const inputText = getSelectedTranscriptContent();
   const sourceLabel = getCurrentSourceLabel();
@@ -1099,4 +1105,5 @@ function initializeTheme() {
   }
 }
 
-document.getElementById("themeToggle").onclick = toggleTheme;
+const themeToggleBtn = document.getElementById("themeToggle");
+if (themeToggleBtn) themeToggleBtn.onclick = toggleTheme;

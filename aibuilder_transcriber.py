@@ -21,7 +21,7 @@ class AIBuilderTranscriber:
 
     def __init__(self):
         self.api_token = os.getenv("AIBUILDER_API_TOKEN")
-        self.base_url = os.getenv("AIBUILDER_BASE_URL", "https://api.aibuilder.space")
+        self.base_url = os.getenv("AIBUILDER_BASE_URL") or "https://space.ai-builders.com/backend"
         if not self.api_token:
             raise EnvironmentError("AIBUILDER_API_TOKEN is not set")
         self.enabled = True
@@ -74,7 +74,7 @@ class AIBuilderTranscriber:
                 response = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {self.api_token}"},
-                    files={"file": (os.path.basename(audio_path), f, "audio/wav")},
+                    files={"audio_file": (os.path.basename(audio_path), f, "audio/wav")},
                     data={"language": language},
                 )
             response.raise_for_status()
@@ -99,7 +99,7 @@ class AIBuilderTranscriber:
                 response = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {self.api_token}"},
-                    files={"file": (os.path.basename(audio_path), f, "audio/wav")},
+                    files={"audio_file": (os.path.basename(audio_path), f, "audio/wav")},
                     data=data,
                 )
             response.raise_for_status()

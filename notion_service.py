@@ -283,23 +283,37 @@ class NotionService:
             logger.error(f"Failed to get database pages: {e}")
             return []
     
+    # H1 headings that mark AI-generated sections (not part of original transcript)
+    AI_SECTION_HEADINGS = {"readability", "correctness", "ask ai"}
+
     async def get_page_content(self, page_id: str) -> str:
-        """Get the full content of a page and return as text"""
+        """Get the transcript content of a page, stopping before AI-generated sections
+        (Readability, Correctness, Ask AI headings and everything after them)"""
         if not self.enabled:
             return ""
-            
+
         try:
             # Get page blocks
             response = self.client.blocks.children.list(block_id=page_id)
             content_text = ""
-            
+
             for block in response["results"]:
+                # Stop at AI-generated section headings
+                if block.get("type") == "heading_1":
+                    heading_texts = block.get("heading_1", {}).get("rich_text", [])
+                    heading_str = "".join(
+                        rt.get("text", {}).get("content", "") for rt in heading_texts
+                    ).strip().lower()
+                    if heading_str in self.AI_SECTION_HEADINGS:
+                        logger.debug(f"Stopping content read at '{heading_str}' section")
+                        break
+
                 text = self._extract_text_from_block(block)
                 if text:
                     content_text += text + "\n"
-            
+
             return content_text.strip()
-            
+
         except Exception as e:
             logger.error(f"Failed to get page content for {page_id}: {e}")
             return ""
@@ -461,6 +475,62 @@ class NotionService:
         except Exception as e:
             logger.error(f"Failed to calculate and update word count for page {page_id}: {e}")
             return None
+
+    async def update_title_and_summary(self, page_id: str, title: str = None,
+                                       summary: str = None, category: str = None) -> bool:
+        """Update the title (Idea), summary (Brief), and category for a specific page"""
+        if not self.enabled:
+            return False
+
+        try:
+            properties = {}
+
+            if title:
+                properties["Idea"] = {
+                    "title": [
+                        {
+                            "text": {
+                                "content": title[:100]
+                            }
+                        }
+                    ]
+                }
+
+            if summary and summary.strip():
+                properties["Brief"] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": summary[:2000]
+                            }
+                        }
+                    ]
+                }
+
+            if category and category.strip():
+                properties["Category"] = {
+                    "multi_select": [
+                        {
+                            "name": category.strip().title()
+                        }
+                    ]
+                }
+
+            if not properties:
+                logger.warning(f"No properties to update for page {page_id}")
+                return False
+
+            self.client.pages.update(
+                page_id=page_id,
+                properties=properties
+            )
+
+            logger.info(f"Updated title/summary for page {page_id}: title={title[:50] if title else 'N/A'}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update title/summary for page {page_id}: {e}")
+            return False
 
     async def update_checkbox(self, page_id: str, property_name: str, checked: bool = True) -> bool:
         """Update a checkbox property for a specific page"""

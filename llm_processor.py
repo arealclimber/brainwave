@@ -90,7 +90,7 @@ class AIBuilderChatProcessor(LLMProcessor):
 
     def __init__(self, default_model: str = 'gemini-3-flash-preview'):
         self.api_token = os.getenv("AIBUILDER_API_TOKEN")
-        self.base_url = os.getenv("AIBUILDER_BASE_URL", "https://api.aibuilder.space")
+        self.base_url = os.getenv("AIBUILDER_BASE_URL") or "https://space.ai-builders.com/backend"
         if not self.api_token:
             raise EnvironmentError("AIBUILDER_API_TOKEN is not set")
         self.async_client = AsyncOpenAI(
@@ -108,16 +108,17 @@ class AIBuilderChatProcessor(LLMProcessor):
         all_prompt = f"{prompt}\n\n{text}"
         model_name = model or self.default_model
         logger.info(f"Using AIBuilder model: {model_name} for processing")
+        # AI Builder Space does not support streaming for Gemini models
         response = await self.async_client.chat.completions.create(
             model=model_name,
             messages=[
                 {"role": "user", "content": all_prompt}
             ],
-            stream=True
+            stream=False
         )
-        async for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        content = response.choices[0].message.content
+        if content:
+            yield content
 
     def process_text_sync(self, text: str, prompt: str, model: Optional[str] = None) -> str:
         all_prompt = f"{prompt}\n\n{text}"

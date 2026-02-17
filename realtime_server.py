@@ -706,31 +706,60 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info("OpenAI client connection closed")
 
 async def create_notion_note_from_transcript(transcript: str):
-    """Create a Notion note from completed STT transcript"""
+    """Create a Notion note immediately with fallback title, then update title/summary in background"""
     try:
         logger.info(f"Creating Notion note for transcript: {transcript[:100]}...")
-        
-        # Analyze content using Gemini
-        analysis = await content_analyzer.analyze_content(transcript)
-        
-        # Create Notion note with analyzed content
+
+        # Create note immediately with fallback title (no AI wait)
         result = await notion_service.create_stt_note(
             content=transcript,
-            title=analysis.get("title"),
-            summary=analysis.get("summary"),
-            category=analysis.get("category"),
-            confidence=analysis.get("confidence")
+            title=None,  # Uses fallback: first sentence
+            summary=None,
+            category="General",
         )
-        
+
         if result:
-            logger.info(f"Successfully created Notion note: {result['url']}")
-            return result  # Return the result containing page_id
+            page_id = result["page_id"]
+            logger.info(f"Notion note created quickly: {result['url']}, launching background analysis...")
+
+            # Fire background task to update title & summary via AI
+            asyncio.create_task(_update_notion_title_background(page_id, transcript))
+
+            return result
         else:
             logger.warning("Failed to create Notion note - service may be disabled")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error creating Notion note from transcript: {e}", exc_info=True)
+
+
+async def _update_notion_title_background(page_id: str, transcript: str):
+    """Background task: analyze content with AI and update Notion page title/summary"""
+    try:
+        logger.info(f"[BG] Starting content analysis for page {page_id}")
+        analysis = await content_analyzer.analyze_content(transcript)
+
+        title = analysis.get("title")
+        summary = analysis.get("summary")
+        category = analysis.get("category")
+
+        logger.info(f"[BG] Analysis done: title={title[:50] if title else 'N/A'}, updating Notion...")
+
+        success = await notion_service.update_title_and_summary(
+            page_id=page_id,
+            title=title,
+            summary=summary,
+            category=category if category != "General" else None
+        )
+
+        if success:
+            logger.info(f"[BG] Successfully updated Notion page {page_id} with AI-generated title/summary")
+        else:
+            logger.warning(f"[BG] Failed to update Notion page {page_id}")
+
+    except Exception as e:
+        logger.error(f"[BG] Error updating Notion title/summary for {page_id}: {e}", exc_info=True)
 
 @app.post(
     "/api/v1/readability",
