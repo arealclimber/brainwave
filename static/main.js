@@ -423,13 +423,15 @@ function resetTabSystem() {
 // Timer functions
 function startTimer() {
   clearInterval(timerInterval);
-  document.getElementById("timer").textContent = "00:00";
+  const timerEl = document.getElementById("timer");
+  if (timerEl) timerEl.textContent = "00:00";
   startTime = Date.now();
   timerInterval = setInterval(() => {
     const elapsed = Date.now() - startTime;
     const minutes = Math.floor(elapsed / 60000);
     const seconds = Math.floor((elapsed % 60000) / 1000);
-    document.getElementById("timer").textContent = `${minutes
+    const el = document.getElementById("timer");
+    if (el) el.textContent = `${minutes
       .toString()
       .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }, 1000);
@@ -510,7 +512,7 @@ function initializeWebSocket() {
 
   ws.onopen = () => {
     wsConnected = true;
-    updateConnectionStatus(true);
+    updateConnectionStatus("connected");
     if (autoStart && !isRecording && !isAutoStarted) startRecording();
   };
 
@@ -575,7 +577,7 @@ function initializeWebSocket() {
 
   ws.onclose = () => {
     wsConnected = false;
-    updateConnectionStatus(false);
+    updateConnectionStatus("idle");
     setTimeout(initializeWebSocket, 1000);
   };
 }
@@ -588,8 +590,8 @@ async function startRecording() {
     isSaveToSheetEnabled = saveToSheetCheckbox && saveToSheetCheckbox.checked;
     isTodoEnabled = todoCheckbox && todoCheckbox.checked;
 
-    transcript.value = "";
-    enhancedTranscript.value = "";
+    if (transcript) transcript.value = "";
+    if (enhancedTranscript) enhancedTranscript.value = "";
     resetTabSystem();
 
     // Always single mode during recording
@@ -608,6 +610,10 @@ async function startRecording() {
     setTranscriptionButtonsEnabled(false);
     updateNotionButtonState();
 
+    if (!navigator.mediaDevices) {
+      throw new Error("Microphone requires HTTPS connection");
+    }
+
     if (!streamInitialized) {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -624,11 +630,9 @@ async function startRecording() {
     if (!audioContext) await initAudio(stream);
 
     isRecording = true;
-    await ws.send(
-      JSON.stringify({
-        type: "start_recording",
-      })
-    );
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "start_recording" }));
+    }
 
     startTimer();
     if (recordButton) {
@@ -908,7 +912,7 @@ document.addEventListener("keydown", (event) => {
       !activeElement.isContentEditable
     ) {
       event.preventDefault();
-      recordButton.click();
+      if (recordButton) recordButton.click();
     }
   }
 });
@@ -1091,7 +1095,7 @@ function toggleTheme() {
   const themeToggle = document.getElementById("themeToggle");
   const isDarkTheme = body.classList.toggle("dark-theme");
 
-  themeToggle.textContent = isDarkTheme ? "☀️" : "🌙";
+  if (themeToggle) themeToggle.textContent = isDarkTheme ? "☀️" : "🌙";
   localStorage.setItem("darkTheme", isDarkTheme);
 }
 
@@ -1101,7 +1105,7 @@ function initializeTheme() {
 
   if (darkTheme) {
     document.body.classList.add("dark-theme");
-    themeToggle.textContent = "☀️";
+    if (themeToggle) themeToggle.textContent = "☀️";
   }
 }
 
