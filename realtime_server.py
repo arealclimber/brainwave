@@ -605,9 +605,30 @@ async def websocket_endpoint(websocket: WebSocket):
                                 await asyncio.sleep(0.1)
                                 
                                 logger.info("All audio sent, committing audio buffer...")
-                                await client.commit_audio()
-                                await client.start_response(PROMPTS['paraphrase-gpt-realtime'])
-                                await recording_stopped.wait()
+                                try:
+                                    await client.commit_audio()
+                                    await client.start_response(PROMPTS['paraphrase-gpt-realtime'])
+                                    await asyncio.wait_for(recording_stopped.wait(), timeout=120.0)
+                                except asyncio.TimeoutError:
+                                    logger.error("Timeout waiting for OpenAI transcription (120s)")
+                                    await websocket.send_text(json.dumps({
+                                        "type": "error",
+                                        "content": "Transcription timed out after 120 seconds"
+                                    }))
+                                    await websocket.send_text(json.dumps({
+                                        "type": "transcription_complete",
+                                        "session_id": session_id
+                                    }))
+                                except Exception as e:
+                                    logger.error(f"Error during OpenAI transcription: {e}", exc_info=True)
+                                    await websocket.send_text(json.dumps({
+                                        "type": "error",
+                                        "content": f"Transcription error: {str(e)}"
+                                    }))
+                                    await websocket.send_text(json.dumps({
+                                        "type": "transcription_complete",
+                                        "session_id": session_id
+                                    }))
                                 # Don't close the client here, let the disconnect timer handle it
                                 # Update client status to connected (waiting for response)
                                 await websocket.send_text(json.dumps({

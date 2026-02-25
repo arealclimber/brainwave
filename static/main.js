@@ -651,13 +651,27 @@ async function stopRecording() {
   isRecording = false;
   stopTimer();
 
-  if (audioBuffer.length > 0 && ws.readyState === WebSocket.OPEN) {
-    ws.send(audioBuffer.buffer);
-    audioBuffer = new Int16Array(0);
-  }
+  try {
+    if (audioBuffer.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(audioBuffer.buffer);
+      audioBuffer = new Int16Array(0);
+    }
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await ws.send(JSON.stringify({ type: "stop_recording" }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "stop_recording" }));
+    } else {
+      console.error("WebSocket not open when trying to send stop_recording, state:", ws?.readyState);
+      showError("Connection lost during recording. Audio may be saved on server — try Batch Transcribe.");
+      // Still enable buttons since audio might have been saved
+      setTranscriptionButtonsEnabled(true);
+    }
+  } catch (e) {
+    console.error("Error in stopRecording:", e);
+    showError("Error stopping recording: " + e.message);
+    setTranscriptionButtonsEnabled(true);
+  }
 
   if (recordButton) {
     recordButton.textContent = "Start";
