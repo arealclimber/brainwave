@@ -1125,3 +1125,133 @@ function initializeTheme() {
 
 const themeToggleBtn = document.getElementById("themeToggle");
 if (themeToggleBtn) themeToggleBtn.onclick = toggleTheme;
+
+// --- Recent Notes Dropdown & Modal ---
+const recentNotesToggle = document.getElementById("recentNotesToggle");
+const recentNotesDropdown = document.getElementById("recentNotesDropdown");
+const recentNotesList = document.getElementById("recentNotesList");
+const noteModal = document.getElementById("noteModal");
+const noteModalBackdrop = document.getElementById("noteModalBackdrop");
+const noteModalClose = document.getElementById("noteModalClose");
+const noteModalTitle = document.getElementById("noteModalTitle");
+const noteModalBody = document.getElementById("noteModalBody");
+const noteModalLink = document.getElementById("noteModalLink");
+
+let recentNotesCache = null;
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function openNoteModal(note) {
+  if (!noteModal) return;
+  noteModalTitle.textContent = note.title || "Untitled";
+  noteModalBody.textContent = note.content || "";
+  noteModalLink.href = note.url || "#";
+  noteModal.classList.remove("hidden");
+}
+
+function closeNoteModal() {
+  if (noteModal) noteModal.classList.add("hidden");
+}
+
+function closeRecentNotesDropdown() {
+  if (recentNotesDropdown) recentNotesDropdown.classList.add("hidden");
+}
+
+async function loadAndRenderRecentNotes() {
+  if (recentNotesCache) {
+    renderRecentNotes(recentNotesCache);
+    return;
+  }
+
+  recentNotesList.innerHTML =
+    '<div class="text-center py-5 text-gray-400 text-sm">Loading...</div>';
+
+  try {
+    const response = await fetch("/api/v1/recent-notes");
+    const result = await response.json();
+
+    if (result.success && result.notes) {
+      recentNotesCache = result.notes;
+      renderRecentNotes(result.notes);
+    } else {
+      recentNotesList.innerHTML =
+        '<div class="text-center py-5 text-gray-400 text-sm">Failed to load notes</div>';
+    }
+  } catch (err) {
+    console.error("Error loading recent notes:", err);
+    recentNotesList.innerHTML =
+      '<div class="text-center py-5 text-gray-400 text-sm">Network error</div>';
+  }
+}
+
+function renderRecentNotes(notes) {
+  if (!notes.length) {
+    recentNotesList.innerHTML =
+      '<div class="text-center py-5 text-gray-400 text-sm">No notes found</div>';
+    return;
+  }
+
+  recentNotesList.innerHTML = notes
+    .map(
+      (note, i) =>
+        `<div class="p-3 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 border-b border-gray-100 dark:border-zinc-700 last:border-b-0" data-index="${i}">
+          <div class="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">${escapeHtml(note.title || "Untitled")}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-3">${escapeHtml(note.content || "")}</div>
+        </div>`
+    )
+    .join("");
+
+  recentNotesList.querySelectorAll("[data-index]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const idx = parseInt(el.dataset.index, 10);
+      closeRecentNotesDropdown();
+      openNoteModal(notes[idx]);
+    });
+  });
+}
+
+if (recentNotesToggle) {
+  recentNotesToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = recentNotesDropdown.classList.contains("hidden");
+    if (isHidden) {
+      recentNotesDropdown.classList.remove("hidden");
+      loadAndRenderRecentNotes();
+    } else {
+      closeRecentNotesDropdown();
+    }
+  });
+}
+
+// Close dropdown on outside click
+document.addEventListener("click", (e) => {
+  if (
+    recentNotesDropdown &&
+    !recentNotesDropdown.classList.contains("hidden") &&
+    !recentNotesDropdown.contains(e.target) &&
+    e.target !== recentNotesToggle
+  ) {
+    closeRecentNotesDropdown();
+  }
+});
+
+// Modal close handlers
+if (noteModalClose) noteModalClose.addEventListener("click", closeNoteModal);
+if (noteModalBackdrop) noteModalBackdrop.addEventListener("click", closeNoteModal);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (noteModal && !noteModal.classList.contains("hidden")) {
+      closeNoteModal();
+    } else if (
+      recentNotesDropdown &&
+      !recentNotesDropdown.classList.contains("hidden")
+    ) {
+      closeRecentNotesDropdown();
+    }
+  }
+});

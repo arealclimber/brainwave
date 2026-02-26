@@ -1131,6 +1131,21 @@ async def save_to_sheet(request: SaveToSheetRequest):
             "error": f"Error saving to Google Sheet: {str(e)}"
         }
 
+## Recent notes endpoint
+@app.get(
+    "/api/v1/recent-notes",
+    summary="Get Recent Notes",
+    description="Get the most recent notes from Notion database."
+)
+async def get_recent_notes():
+    """Get recent notes for the dropdown"""
+    try:
+        notes = await notion_service.get_recent_notes(limit=10)
+        return {"success": True, "notes": notes}
+    except Exception as e:
+        logger.error(f"Error getting recent notes: {e}", exc_info=True)
+        return {"success": False, "notes": [], "error": str(e)}
+
 ## Audio download endpoint
 @app.get(
     "/api/v1/download-audio/{session_id}",

@@ -21,6 +21,10 @@
     <link rel="manifest" href="static/manifest.json" />
 
     <link rel="stylesheet" type="text/css" href="static/style.css?v=2" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: ['selector', '.dark-theme'] }
+    </script>
   </head>
   <body>
     <!-- Toast messages -->
@@ -31,6 +35,14 @@
       <!-- Top status bar -->
       <div class="status-bar">
         <button id="themeToggle" class="theme-toggle">🌙</button>
+        <div class="relative">
+          <button id="recentNotesToggle" class="theme-toggle" title="Recent Notes">📋</button>
+          <div id="recentNotesDropdown" class="hidden absolute top-full left-1/2 -translate-x-1/2 mt-2 w-96 max-h-[500px] overflow-y-auto bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-xl z-50">
+            <div id="recentNotesList" class="p-2">
+              <div class="text-center py-5 text-gray-400 text-sm">Loading...</div>
+            </div>
+          </div>
+        </div>
         <div id="timer" class="timer">00:00</div>
         <div id="connectionStatus" class="connection-status"></div>
       </div>
@@ -150,6 +162,19 @@
         </div>
       </div>
     </div>
-    <script src="static/main.js?v=3"></script>
+    <!-- Note detail modal -->
+    <div id="noteModal" class="hidden fixed inset-0 z-[200] flex items-center justify-center">
+      <div id="noteModalBackdrop" class="absolute inset-0 bg-black/50"></div>
+      <div class="relative w-full max-w-2xl max-h-[80vh] mx-5 bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-zinc-700">
+          <a id="noteModalLink" href="#" target="_blank" class="text-blue-500 hover:underline text-sm">Open in Notion</a>
+          <button id="noteModalClose" class="text-2xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none">&times;</button>
+        </div>
+        <h2 id="noteModalTitle" class="px-5 pt-4 pb-2 font-semibold text-lg text-gray-900 dark:text-gray-100"></h2>
+        <div id="noteModalBody" class="px-5 pb-5 overflow-y-auto text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed"></div>
+      </div>
+    </div>
+
+    <script src="static/main.js?v=4"></script>
   </body>
 </html>

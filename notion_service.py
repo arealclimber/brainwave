@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import asyncio
 from typing import Dict, Optional, List, Any
 from datetime import datetime
 from notion_client import Client
@@ -205,6 +206,67 @@ class NotionService:
             logger.error(f"Unexpected error creating Notion page: {e}")
             return None
     
+    async def get_recent_notes(self, limit: int = 10) -> List[Dict]:
+        """Get recent notes from the database with their content"""
+        if not self.enabled:
+            return []
+
+        try:
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                page_size=limit,
+                sorts=[
+                    {
+                        "property": "Last edited time",
+                        "direction": "descending"
+                    }
+                ]
+            )
+
+            pages = response.get("results", [])
+            if not pages:
+                return []
+
+            sem = asyncio.Semaphore(3)
+
+            async def fetch_one(page):
+                async with sem:
+                    page_id = page["id"]
+                    # Extract title from Idea property
+                    title = "Untitled"
+                    idea_prop = page.get("properties", {}).get("Idea", {})
+                    title_items = idea_prop.get("title", [])
+                    if title_items:
+                        title = "".join(
+                            t.get("text", {}).get("content", "") for t in title_items
+                        )
+
+                    content = await self.get_page_content(page_id)
+
+                    # Get last_edited_time
+                    last_edited = None
+                    custom_prop = page.get("properties", {}).get("Last edited time", {})
+                    if custom_prop.get("type") == "last_edited_time":
+                        last_edited = custom_prop.get("last_edited_time")
+                    if not last_edited:
+                        last_edited = page.get("last_edited_time")
+
+                    return {
+                        "page_id": page_id,
+                        "title": title,
+                        "content": content,
+                        "url": page.get("url", ""),
+                        "last_edited_time": last_edited,
+                    }
+
+            notes = await asyncio.gather(*(fetch_one(p) for p in pages))
+            logger.info(f"Retrieved {len(notes)} recent notes")
+            return list(notes)
+
+        except Exception as e:
+            logger.error(f"Failed to get recent notes: {e}")
+            return []
+
     def _generate_title_from_content(self, content: str) -> str:
         """Generate a title from content if none provided"""
         # Simple title generation - take first sentence or first 50 chars
