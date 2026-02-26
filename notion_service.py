@@ -20,14 +20,24 @@ class NotionService:
         
         if self.token and self.database_id:
             try:
-                self.client = Client(auth=self.token)
+                self.client = Client(auth=self.token, notion_version="2022-06-28")
                 self.enabled = True
                 logger.info("Notion service initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Notion client: {e}")
         else:
             logger.warning("Notion integration disabled: NOTION_TOKEN or NOTION_DATABASE_ID not set")
-    
+
+    def _query_database(self, **kwargs) -> Dict:
+        """Query the database (notion-client v3 removed databases.query, use raw request)"""
+        body = {k: v for k, v in kwargs.items()
+                if k in ("sorts", "filter", "start_cursor", "page_size", "archived")}
+        return self.client.request(
+            path=f"databases/{self.database_id}/query",
+            method="POST",
+            body=body,
+        )
+
     async def create_stt_note(
         self, 
         content: str, 
@@ -212,8 +222,7 @@ class NotionService:
             return []
 
         try:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            response = self._query_database(
                 page_size=limit,
                 sorts=[
                     {
@@ -227,41 +236,38 @@ class NotionService:
             if not pages:
                 return []
 
-            sem = asyncio.Semaphore(3)
+            notes = []
+            for page in pages:
+                page_id = page["id"]
+                # Extract title from Idea property
+                title = "Untitled"
+                idea_prop = page.get("properties", {}).get("Idea", {})
+                title_items = idea_prop.get("title", [])
+                if title_items:
+                    title = "".join(
+                        t.get("text", {}).get("content", "") for t in title_items
+                    )
 
-            async def fetch_one(page):
-                async with sem:
-                    page_id = page["id"]
-                    # Extract title from Idea property
-                    title = "Untitled"
-                    idea_prop = page.get("properties", {}).get("Idea", {})
-                    title_items = idea_prop.get("title", [])
-                    if title_items:
-                        title = "".join(
-                            t.get("text", {}).get("content", "") for t in title_items
-                        )
+                content = await self.get_page_content(page_id)
 
-                    content = await self.get_page_content(page_id)
+                # Get last_edited_time
+                last_edited = None
+                custom_prop = page.get("properties", {}).get("Last edited time", {})
+                if custom_prop.get("type") == "last_edited_time":
+                    last_edited = custom_prop.get("last_edited_time")
+                if not last_edited:
+                    last_edited = page.get("last_edited_time")
 
-                    # Get last_edited_time
-                    last_edited = None
-                    custom_prop = page.get("properties", {}).get("Last edited time", {})
-                    if custom_prop.get("type") == "last_edited_time":
-                        last_edited = custom_prop.get("last_edited_time")
-                    if not last_edited:
-                        last_edited = page.get("last_edited_time")
+                notes.append({
+                    "page_id": page_id,
+                    "title": title,
+                    "content": content,
+                    "url": page.get("url", ""),
+                    "last_edited_time": last_edited,
+                })
 
-                    return {
-                        "page_id": page_id,
-                        "title": title,
-                        "content": content,
-                        "url": page.get("url", ""),
-                        "last_edited_time": last_edited,
-                    }
-
-            notes = await asyncio.gather(*(fetch_one(p) for p in pages))
             logger.info(f"Retrieved {len(notes)} recent notes")
-            return list(notes)
+            return notes
 
         except Exception as e:
             logger.error(f"Failed to get recent notes: {e}")
@@ -309,8 +315,7 @@ class NotionService:
             return []
             
         try:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            response = self._query_database(
                 sorts=[
                     {
                         "property": "Last edited time",
@@ -318,7 +323,7 @@ class NotionService:
                     }
                 ]
             )
-            
+
             pages = []
             for page in response["results"]:
                 # Try to get custom "Last edited time" property first, fallback to system property

@@ -202,15 +202,16 @@ async def startup_event():
     _cleanup_task = asyncio.create_task(cleanup_old_audio_files())
     logger.info("Audio cleanup background task started")
     
-    # Start the word count monitor if Notion is configured
-    if notion_service.enabled:
-        success = await word_count_monitor.start()
-        if success:
-            logger.info("Word count monitoring started successfully")
-        else:
-            logger.warning("Failed to start word count monitoring")
-    else:
-        logger.info("Notion service not enabled, skipping word count monitoring")
+    # Word count monitor disabled for now (uncomment to re-enable)
+    # if notion_service.enabled:
+    #     success = await word_count_monitor.start()
+    #     if success:
+    #         logger.info("Word count monitoring started successfully")
+    #     else:
+    #         logger.warning("Failed to start word count monitoring")
+    # else:
+    #     logger.info("Notion service not enabled, skipping word count monitoring")
+    logger.info("Word count monitoring skipped (disabled)")
 
 @app.on_event("shutdown")
 async def shutdown_event():
