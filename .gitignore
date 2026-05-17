@@ -4,3 +4,4 @@ scratchpad.md
 __pycache__/
 venv/
 .env
+.mypy_cache

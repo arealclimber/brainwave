@@ -580,6 +580,17 @@ body.dark-theme .transcript-box.selected textarea {
   }
 }
 
+/* Mission dropdown row — full width slot inside top-controls */
+.mission-row {
+  flex-basis: 100%;
+  max-width: 360px;
+}
+@media (max-width: 480px) {
+  .mission-row {
+    max-width: 100%;
+  }
+}
+
 /* Enhanced section with tabs */
 .enhanced-section {
   margin-top: 15px;

@@ -22,7 +22,7 @@ import datetime
 import scipy.signal
 from openai import OpenAI, AsyncOpenAI
 from pydantic import BaseModel, Field
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 from llm_processor import get_llm_processor
 from datetime import datetime, timedelta
 from notion_service import notion_service
@@ -144,6 +144,12 @@ class RetranscribeResponse(BaseModel):
 class ConfirmNotionRequest(BaseModel):
     transcript: str = Field(..., description="The transcript text to save to Notion")
     session_id: Optional[str] = Field(None, description="The session ID for audio cleanup")
+    missions: Optional[List[str]] = Field(None, description="Optional Mission (Notion multi_select) names")
+
+# Mission update model
+class UpdateMissionRequest(BaseModel):
+    page_id: str = Field(..., description="The Notion page ID to update")
+    missions: Optional[List[str]] = Field(None, description="Mission names; empty/None clears the property")
 
 # Append Notion models
 class AppendNotionRequest(BaseModel):
@@ -727,10 +733,10 @@ async def websocket_endpoint(websocket: WebSocket):
             await client.close()
             logger.info("OpenAI client connection closed")
 
-async def create_notion_note_from_transcript(transcript: str):
+async def create_notion_note_from_transcript(transcript: str, missions: Optional[List[str]] = None):
     """Create a Notion note immediately with fallback title, then update title/summary in background"""
     try:
-        logger.info(f"Creating Notion note for transcript: {transcript[:100]}...")
+        logger.info(f"Creating Notion note for transcript: {transcript[:100]}... (missions={missions!r})")
 
         # Create note immediately with fallback title (no AI wait)
         result = await notion_service.create_stt_note(
@@ -738,6 +744,7 @@ async def create_notion_note_from_transcript(transcript: str):
             title=None,  # Uses fallback: first sentence
             summary=None,
             category="General",
+            missions=missions,
         )
 
         if result:
@@ -1012,7 +1019,7 @@ async def confirm_notion(request: ConfirmNotionRequest):
         logger.info(f"Confirming transcript to Notion: {request.transcript[:100]}...")
         
         # Create Notion note
-        result = await create_notion_note_from_transcript(request.transcript)
+        result = await create_notion_note_from_transcript(request.transcript, missions=request.missions)
 
         # Note: Audio file is NOT deleted here — user may re-save or download
 
@@ -1131,6 +1138,37 @@ async def save_to_sheet(request: SaveToSheetRequest):
             "success": False,
             "error": f"Error saving to Google Sheet: {str(e)}"
         }
+
+## Mission options endpoint (Notion multi_select schema)
+@app.get(
+    "/api/v1/mission-options",
+    summary="Get Mission Options",
+    description="Return the list of Mission multi_select options defined on the Notion database.",
+)
+async def get_mission_options():
+    try:
+        options = await notion_service.get_mission_options()
+        return {"success": True, "options": options}
+    except Exception as e:
+        logger.error(f"Error getting Mission options: {e}", exc_info=True)
+        return {"success": False, "options": [], "error": str(e)}
+
+
+@app.post(
+    "/api/v1/update-mission",
+    summary="Update Mission on a Notion page",
+    description="Set or clear the Mission multi_select property on an existing Notion page.",
+)
+async def update_mission(request: UpdateMissionRequest):
+    try:
+        success = await notion_service.update_mission(request.page_id, request.missions)
+        if success:
+            return {"success": True, "message": "Mission updated"}
+        return {"success": False, "error": "Failed to update Mission"}
+    except Exception as e:
+        logger.error(f"Error updating Mission: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
 
 ## Recent notes endpoint
 @app.get(

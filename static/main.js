@@ -878,6 +878,7 @@ if (confirmNotionButton) confirmNotionButton.onclick = async () => {
       body: JSON.stringify({
         transcript: inputText,
         session_id: currentSessionId,
+        missions: selectedMissions.length ? selectedMissions : null,
       }),
     });
 
@@ -1252,6 +1253,228 @@ document.addEventListener("keydown", (e) => {
       !recentNotesDropdown.classList.contains("hidden")
     ) {
       closeRecentNotesDropdown();
+    } else if (
+      missionDropdown &&
+      !missionDropdown.classList.contains("hidden")
+    ) {
+      closeMissionDropdown();
     }
   }
 });
+
+// --- Mission Dropdown (searchable, MRU on top via localStorage) ---
+const missionToggle = document.getElementById("missionToggle");
+const missionDropdown = document.getElementById("missionDropdown");
+const missionLabel = document.getElementById("missionLabel");
+const missionSearch = document.getElementById("missionSearch");
+const missionList = document.getElementById("missionList");
+
+const MISSION_MRU_KEY = "missionMru";
+const MISSION_MRU_MAX = 20;
+let missionOptionsCache = null;
+let selectedMissions = [];
+let missionSyncTimer = null;
+
+function loadMissionMru() {
+  try {
+    const raw = localStorage.getItem(MISSION_MRU_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushMissionMru(name) {
+  if (!name) return;
+  const existing = loadMissionMru().filter((n) => n !== name);
+  existing.unshift(name);
+  const trimmed = existing.slice(0, MISSION_MRU_MAX);
+  try {
+    localStorage.setItem(MISSION_MRU_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+
+function sortByMru(options) {
+  const mru = loadMissionMru();
+  const rank = new Map(mru.map((name, idx) => [name, idx]));
+  const ranked = [];
+  const rest = [];
+  for (const opt of options) {
+    if (rank.has(opt.name)) ranked.push(opt);
+    else rest.push(opt);
+  }
+  ranked.sort((a, b) => rank.get(a.name) - rank.get(b.name));
+  return [...ranked, ...rest];
+}
+
+async function loadMissionOptions() {
+  if (missionOptionsCache) return missionOptionsCache;
+  try {
+    const res = await fetch("/api/v1/mission-options");
+    const data = await res.json();
+    missionOptionsCache = data.success && Array.isArray(data.options) ? data.options : [];
+  } catch (err) {
+    console.error("Error loading mission options:", err);
+    missionOptionsCache = [];
+  }
+  return missionOptionsCache;
+}
+
+function renderMissionList(query = "") {
+  if (!missionList) return;
+  const options = missionOptionsCache || [];
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((o) => o.name.toLowerCase().includes(q))
+    : options;
+  const ordered = sortByMru(filtered);
+
+  const mruSet = new Set(loadMissionMru());
+  const selectedSet = new Set(selectedMissions);
+  const items = [
+    `<div class="px-3 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 text-gray-500 italic" data-action="clear">— Clear all —</div>`,
+    ...ordered.map(
+      (o) =>
+        `<div class="px-3 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 flex items-center justify-between gap-2 ${
+          selectedSet.has(o.name) ? "bg-blue-50 dark:bg-zinc-700" : ""
+        }" data-mission="${escapeHtml(o.name)}">
+          <span class="flex items-center gap-2 min-w-0">
+            <span class="inline-block w-4 text-blue-500">${selectedSet.has(o.name) ? "✓" : ""}</span>
+            <span class="truncate">${escapeHtml(o.name)}</span>
+          </span>
+          ${mruSet.has(o.name) ? '<span class="text-[10px] text-blue-500">recent</span>' : ""}
+        </div>`
+    ),
+  ];
+
+  if (!ordered.length && q) {
+    items.push('<div class="px-3 py-2 text-gray-400">No match</div>');
+  }
+
+  missionList.innerHTML = items.join("");
+  missionList.querySelectorAll("[data-mission], [data-action]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.dataset.action === "clear") {
+        clearMissions();
+        renderMissionList(missionSearch ? missionSearch.value : "");
+        return;
+      }
+      const name = el.getAttribute("data-mission");
+      toggleMission(name);
+      renderMissionList(missionSearch ? missionSearch.value : "");
+    });
+  });
+}
+
+function openMissionDropdown() {
+  if (!missionDropdown) return;
+  missionDropdown.classList.remove("hidden");
+  if (missionSearch) {
+    missionSearch.value = "";
+    setTimeout(() => missionSearch.focus(), 0);
+  }
+  renderMissionList("");
+}
+
+function closeMissionDropdown() {
+  if (missionDropdown) missionDropdown.classList.add("hidden");
+}
+
+function updateMissionLabel() {
+  if (!missionLabel) return;
+  if (!selectedMissions.length) {
+    missionLabel.textContent = "Missions: —";
+  } else if (selectedMissions.length <= 2) {
+    missionLabel.textContent = `Missions: ${selectedMissions.join(", ")}`;
+  } else {
+    missionLabel.textContent = `Missions: ${selectedMissions[0]} +${selectedMissions.length - 1}`;
+  }
+}
+
+function scheduleMissionSync() {
+  if (!savedNotionPageId) return;
+  clearTimeout(missionSyncTimer);
+  missionSyncTimer = setTimeout(syncMissionsToNotion, 400);
+}
+
+async function syncMissionsToNotion() {
+  if (!savedNotionPageId) return;
+  try {
+    const res = await fetch("/api/v1/update-mission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        page_id: savedNotionPageId,
+        missions: selectedMissions.length ? selectedMissions : null,
+      }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showSuccess(
+        selectedMissions.length
+          ? `Missions saved (${selectedMissions.length})`
+          : "Missions cleared"
+      );
+    } else {
+      showError(data.error || "Failed to update Missions");
+    }
+  } catch (err) {
+    console.error("update-mission error:", err);
+    showError("Network error updating Missions");
+  }
+}
+
+function toggleMission(name) {
+  if (!name) return;
+  const idx = selectedMissions.indexOf(name);
+  if (idx >= 0) {
+    selectedMissions.splice(idx, 1);
+  } else {
+    selectedMissions.push(name);
+    pushMissionMru(name);
+  }
+  updateMissionLabel();
+  scheduleMissionSync();
+}
+
+function clearMissions() {
+  if (!selectedMissions.length) return;
+  selectedMissions = [];
+  updateMissionLabel();
+  scheduleMissionSync();
+}
+
+if (missionToggle) {
+  missionToggle.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const isHidden = missionDropdown.classList.contains("hidden");
+    if (isHidden) {
+      await loadMissionOptions();
+      openMissionDropdown();
+    } else {
+      closeMissionDropdown();
+    }
+  });
+}
+
+if (missionSearch) {
+  missionSearch.addEventListener("input", (e) => renderMissionList(e.target.value));
+  missionSearch.addEventListener("click", (e) => e.stopPropagation());
+}
+
+document.addEventListener("click", (e) => {
+  if (
+    missionDropdown &&
+    !missionDropdown.classList.contains("hidden") &&
+    !missionDropdown.contains(e.target) &&
+    e.target !== missionToggle &&
+    !missionToggle.contains(e.target)
+  ) {
+    closeMissionDropdown();
+  }
+});
+
+updateMissionLabel();

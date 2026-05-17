@@ -39,13 +39,14 @@ class NotionService:
         )
 
     async def create_stt_note(
-        self, 
-        content: str, 
+        self,
+        content: str,
         title: str = None,
         summary: str = None,
         category: str = None,
         confidence: float = None,
-        auto_calculate_words: bool = True
+        auto_calculate_words: bool = True,
+        missions: Optional[List[str]] = None,
     ) -> Optional[Dict]:
         """Create a new note in Notion from STT transcription"""
         if not self.enabled:
@@ -118,6 +119,14 @@ class NotionService:
                         ]
                     }
                 
+                # Mission field (multi_select) if any names provided
+                if missions:
+                    clean = [m.strip() for m in missions if isinstance(m, str) and m.strip()]
+                    if clean:
+                        properties["Mission"] = {
+                            "multi_select": [{"name": n} for n in clean]
+                        }
+
                 # Words field - calculate and add word count if enabled
                 if auto_calculate_words:
                     word_count = self.count_words(content)
@@ -597,6 +606,42 @@ class NotionService:
 
         except Exception as e:
             logger.error(f"Failed to update title/summary for page {page_id}: {e}")
+            return False
+
+    async def get_mission_options(self) -> List[Dict[str, str]]:
+        """Return Mission multi_select options as [{name, color}, ...] from DB schema."""
+        if not self.enabled:
+            return []
+        try:
+            db_info = self.client.databases.retrieve(self.database_id)
+            prop = db_info.get("properties", {}).get("Mission", {})
+            if prop.get("type") != "multi_select":
+                logger.warning("Mission property is not multi_select")
+                return []
+            options = prop.get("multi_select", {}).get("options", [])
+            return [{"name": o.get("name", ""), "color": o.get("color", "default")}
+                    for o in options if o.get("name")]
+        except Exception as e:
+            logger.error(f"Failed to get Mission options: {e}")
+            return []
+
+    async def update_mission(self, page_id: str, missions: Optional[List[str]]) -> bool:
+        """Set the Mission multi_select on a page. Pass None or [] to clear."""
+        if not self.enabled:
+            return False
+        try:
+            clean = []
+            if missions:
+                clean = [m.strip() for m in missions if isinstance(m, str) and m.strip()]
+            value = [{"name": n} for n in clean]
+            self.client.pages.update(
+                page_id=page_id,
+                properties={"Mission": {"multi_select": value}},
+            )
+            logger.info(f"Updated Mission for page {page_id}: {clean!r}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update Mission for page {page_id}: {e}")
             return False
 
     async def update_checkbox(self, page_id: str, property_name: str, checked: bool = True) -> bool:
