@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/shirley/nexus/**)",
+      "Read(//Users/shirley/**)"
+    ]
+  }
+}

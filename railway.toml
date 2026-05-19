@@ -9,7 +9,7 @@ restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
 # Audio storage uses /tmp by default (no persistent volume needed)
-# Audio files are temporary and cleaned up after use or within 24 hours
+# Audio files persist for the lifetime of the container (cleared on redeploy/restart)
 
 [experimental]
 incrementalBuild = true

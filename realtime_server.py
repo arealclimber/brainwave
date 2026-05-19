@@ -24,7 +24,7 @@ from openai import OpenAI, AsyncOpenAI
 from pydantic import BaseModel, Field
 from typing import Generator, List, Optional
 from llm_processor import get_llm_processor
-from datetime import datetime, timedelta
+from datetime import datetime
 from notion_service import notion_service
 from content_analyzer import content_analyzer
 from monitor import word_count_monitor
@@ -55,41 +55,6 @@ def generate_session_id() -> str:
 def get_audio_file_path(session_id: str) -> str:
     """Get the full path for an audio file given a session ID"""
     return os.path.join(AUDIO_STORAGE_PATH, f"{session_id}.wav")
-
-# Audio cleanup configuration
-AUDIO_CLEANUP_INTERVAL = 3600  # 1 hour in seconds
-AUDIO_MAX_AGE = 86400  # 24 hours in seconds
-
-async def cleanup_old_audio_files():
-    """Background task to clean up old audio files every hour"""
-    while True:
-        try:
-            await asyncio.sleep(AUDIO_CLEANUP_INTERVAL)
-            
-            if not os.path.exists(AUDIO_STORAGE_PATH):
-                continue
-                
-            now = datetime.now()
-            cleaned_count = 0
-            
-            for filename in os.listdir(AUDIO_STORAGE_PATH):
-                filepath = os.path.join(AUDIO_STORAGE_PATH, filename)
-                try:
-                    file_mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
-                    file_age = (now - file_mtime).total_seconds()
-                    
-                    if file_age > AUDIO_MAX_AGE:
-                        os.remove(filepath)
-                        cleaned_count += 1
-                        logger.info(f"Cleaned up old audio file: {filepath}")
-                except Exception as e:
-                    logger.warning(f"Failed to check/clean file {filepath}: {e}")
-            
-            if cleaned_count > 0:
-                logger.info(f"Audio cleanup completed: removed {cleaned_count} old files")
-                
-        except Exception as e:
-            logger.error(f"Error in audio cleanup task: {e}")
 
 # Configure logging
 logging.basicConfig(
@@ -191,23 +156,15 @@ except Exception as e:
     logger.warning(f"Failed to initialize LLM processor: {e}. Text processing will be disabled.")
     llm_processor = None
 
-# Background task reference for cleanup
-_cleanup_task = None
-
 # Application lifecycle events
 @app.on_event("startup")
 async def startup_event():
     """Start the word count monitoring service and ensure audio storage exists"""
-    global _cleanup_task
     logger.info("Starting application...")
-    
+
     # Ensure audio storage directory exists
     ensure_audio_storage_exists()
-    
-    # Start background audio cleanup task
-    _cleanup_task = asyncio.create_task(cleanup_old_audio_files())
-    logger.info("Audio cleanup background task started")
-    
+
     # Word count monitor disabled for now (uncomment to re-enable)
     # if notion_service.enabled:
     #     success = await word_count_monitor.start()
@@ -222,18 +179,8 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean shutdown of services"""
-    global _cleanup_task
     logger.info("Shutting down application...")
-    
-    # Stop the audio cleanup task
-    if _cleanup_task:
-        _cleanup_task.cancel()
-        try:
-            await _cleanup_task
-        except asyncio.CancelledError:
-            pass
-        logger.info("Audio cleanup task stopped")
-    
+
     # Stop the word count monitor
     await word_count_monitor.stop()
     logger.info("Word count monitoring stopped")
