@@ -324,34 +324,48 @@ class NotionService:
             return []
             
         try:
-            response = self._query_database(
-                sorts=[
-                    {
-                        "property": "Last edited time",
-                        "direction": "descending"
-                    }
-                ]
-            )
-
             pages = []
-            for page in response["results"]:
-                # Try to get custom "Last edited time" property first, fallback to system property
-                custom_last_edited = None
-                if "Last edited time" in page.get("properties", {}):
-                    custom_prop = page["properties"]["Last edited time"]
-                    if custom_prop.get("type") == "last_edited_time":
-                        custom_last_edited = custom_prop.get("last_edited_time")
-                
-                # Use custom property if available, otherwise use system property
-                last_edited_time = custom_last_edited or page["last_edited_time"]
-                
-                pages.append({
-                    "page_id": page["id"],
-                    "last_edited_time": last_edited_time,
-                    "url": page["url"],
-                    "properties": page["properties"]
-                })
-            
+            start_cursor = None
+
+            # Paginate: a single query returns at most 100 pages, so without this
+            # loop every caller silently sees only the 100 most recently edited.
+            while True:
+                query_args = {
+                    "page_size": 100,
+                    "sorts": [
+                        {
+                            "property": "Last edited time",
+                            "direction": "descending"
+                        }
+                    ]
+                }
+                if start_cursor:
+                    query_args["start_cursor"] = start_cursor
+
+                response = self._query_database(**query_args)
+
+                for page in response["results"]:
+                    # Try to get custom "Last edited time" property first, fallback to system property
+                    custom_last_edited = None
+                    if "Last edited time" in page.get("properties", {}):
+                        custom_prop = page["properties"]["Last edited time"]
+                        if custom_prop.get("type") == "last_edited_time":
+                            custom_last_edited = custom_prop.get("last_edited_time")
+
+                    # Use custom property if available, otherwise use system property
+                    last_edited_time = custom_last_edited or page["last_edited_time"]
+
+                    pages.append({
+                        "page_id": page["id"],
+                        "last_edited_time": last_edited_time,
+                        "url": page["url"],
+                        "properties": page["properties"]
+                    })
+
+                if not response.get("has_more"):
+                    break
+                start_cursor = response["next_cursor"]
+
             logger.info(f"Retrieved {len(pages)} pages from database")
             return pages
             
@@ -369,24 +383,36 @@ class NotionService:
             return ""
 
         try:
-            # Get page blocks
-            response = self.client.blocks.children.list(block_id=page_id)
             content_text = ""
+            start_cursor = None
 
-            for block in response["results"]:
-                # Stop at AI-generated section headings
-                if block.get("type") == "heading_1":
-                    heading_texts = block.get("heading_1", {}).get("rich_text", [])
-                    heading_str = "".join(
-                        rt.get("text", {}).get("content", "") for rt in heading_texts
-                    ).strip().lower()
-                    if heading_str in self.AI_SECTION_HEADINGS:
-                        logger.debug(f"Stopping content read at '{heading_str}' section")
-                        break
+            # Paginate: blocks.children.list returns at most 100 blocks, so long
+            # transcripts were previously truncated mid-page.
+            while True:
+                response = self.client.blocks.children.list(
+                    block_id=page_id,
+                    page_size=100,
+                    start_cursor=start_cursor,
+                )
 
-                text = self._extract_text_from_block(block)
-                if text:
-                    content_text += text + "\n"
+                for block in response["results"]:
+                    # Stop at AI-generated section headings
+                    if block.get("type") == "heading_1":
+                        heading_texts = block.get("heading_1", {}).get("rich_text", [])
+                        heading_str = "".join(
+                            rt.get("text", {}).get("content", "") for rt in heading_texts
+                        ).strip().lower()
+                        if heading_str in self.AI_SECTION_HEADINGS:
+                            logger.debug(f"Stopping content read at '{heading_str}' section")
+                            return content_text.strip()
+
+                    text = self._extract_text_from_block(block)
+                    if text:
+                        content_text += text + "\n"
+
+                if not response.get("has_more"):
+                    break
+                start_cursor = response["next_cursor"]
 
             return content_text.strip()
 
