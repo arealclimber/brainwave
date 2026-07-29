@@ -23,7 +23,9 @@ class TestNotionService:
                 assert service.enabled
                 assert service.token == 'test_token'
                 assert service.database_id == 'test_db_id'
-                mock_client.assert_called_once_with(auth='test_token')
+                mock_client.assert_called_once_with(
+                    auth='test_token', notion_version='2022-06-28'
+                )
     
     @pytest.mark.asyncio
     async def test_create_stt_note_disabled(self):
@@ -55,7 +57,6 @@ class TestNotionService:
                     title="Test Title",
                     summary="Test Summary",
                     category="Technology",
-                    tags=["test", "transcript"],
                     confidence=0.95
                 )
                 
