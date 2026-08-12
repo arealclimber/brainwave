@@ -63,7 +63,6 @@ Deploying **Brainwave** involves setting up a Python-based environment, installi
    ```
 
 3. **Activate the Virtual Environment**
-
    - **On macOS/Linux:**
 
      ```bash
@@ -88,7 +87,6 @@ Deploying **Brainwave** involves setting up a Python-based environment, installi
 5. **Configure Environment Variables**
 
    Brainwave requires the OpenAI API key to function. Set the `OPENAI_API_KEY` environment variable:
-
    - **On macOS/Linux:**
 
      ```bash
@@ -207,6 +205,7 @@ To run the tests:
 1. **Install Test Dependencies**
 
    The test dependencies are included in `requirements.txt`. Make sure you have them installed:
+
    ```bash
    pip install pytest pytest-asyncio pytest-mock httpx
    ```
@@ -227,12 +226,21 @@ To run the tests:
 3. **Test Environment**
 
    Tests use mocked API clients to avoid actual API calls. Set up the test environment variables:
+
    ```bash
    export OPENAI_API_KEY='test_key'  # For local testing
    export GOOGLE_API_KEY='test_key'  # For local testing
    ```
 
 The test suite is designed to run without making actual API calls, making it suitable for CI/CD pipelines.
+
+## Script
+
+update Notion word count
+
+```bash
+PYTHONPATH=. venv/bin/python scripts/update_word_counts.py
+```
 
 ---
 
@@ -244,4 +252,4 @@ For any questions, contributions, or feedback, feel free to [open an issue](http
 
 ---
 
-*Empower Your Ideas with Brainwave!*
+_Empower Your Ideas with Brainwave!_
